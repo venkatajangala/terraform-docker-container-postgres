@@ -1,123 +1,450 @@
-# Terraform-managed Postgres with DBHub (MCP) Integration
+# Terraform-managed PostgreSQL with pgvector and DBHub (MCP) Integration
 
-This Terraform configuration deploys PostgreSQL and DBHub (Bytebase) containers using Docker with a custom bridge network for inter-container communication. DBHub provides a web interface for managing your PostgreSQL databases.
+This Terraform configuration deploys a complete PostgreSQL 18 + pgvector + DBHub (Bytebase) stack using Docker with a custom bridge network for secure inter-container communication. The setup is fully automated with pgvector extension and sample table initialization.
 
-## Features
-
-- **PostgreSQL Version**: Uses `postgres:18.1-alpine` image
-- **Persistent Storage**: Data is stored in a Docker named volume `pgdata` mounted at `/var/lib/postgresql/data`
-- **Custom Bridge Network**: Both containers communicate securely via `mcp-network`
-- **DBHub Web Interface**: Bytebase web UI for database management and SQL execution
-- **Port Mappings**:
-  - PostgreSQL: `5432` (internal and external)
-  - DBHub: `9090` (external, internally `8080`)
-- **Environment Variables**: Configurable credentials and ports
-- **Restart Policy**: Containers restart automatically unless stopped manually
-
-## Architecture
+## Complete Stack
 
 ```
-┌─────────────────────┐         ┌────────────────────┐
-│   DBHub Container   │         │  Postgres Container│
-│  (port 9090)        │◄────────┤  (port 5432)       │
-│  bytebase/bytebase  │         │  postgres:18.1     │
-└─────────────────────┘         └────────────────────┘
-         │                              │
-         └──────────────────────────────┘
+┌─────────────────────┐         ┌──────────────────────────────┐
+│   DBHub Container   │         │  Postgres Container          │
+│  (port 9090)        │◄────────┤  (port 5432)                 │
+│  bytebase/bytebase  │         │  pgvector 0.8.1-pg18-trixie  │
+└─────────────────────┘         │  with pgvector pre-loaded    │
+         │                      └──────────────────────────────┘
+         └──────────────────────────┘
             Connected via mcp-network
 ```
 
-## Variables
+## Features
+
+- **PostgreSQL 18 with pgvector**: Official pgvector 0.8.1 image optimized for PostgreSQL 18 (Debian trixie)
+- **Automatic pgvector Initialization**: Extension automatically created on startup with pre-configured sample table
+- **Vector Pre-loading**: pgvector loaded via `shared_preload_libraries` for optimal performance
+- **Sample Table**: `items` table with 1536-dimensional vectors and IVFFLAT index for testing
+- **PostgreSQL 18+ Compatible**: Properly configured mount point at `/var/lib/postgresql` for version-specific directories
+- **Persistent Storage**: Docker named volume `pgdata` for data persistence across restarts
+- **DBHub/Bytebase Web Interface**: Web-based database management, SQL editor, and schema visualization
+- **Custom Bridge Network**: Secure `mcp-network` for container-to-container communication
+- **Automatic Dependencies**: DBHub waits for PostgreSQL to be ready before starting
+- **Environment Variables**: Fully configurable credentials and ports
+- **Auto-restart Policy**: Containers restart automatically unless stopped manually
+
+## Project Structure
+
+```
+.
+├── main.tf                    # Main Terraform configuration with Docker resources
+├── variables.tf              # Input variables for customization
+├── outputs.tf                # Output values for accessing services
+├── Dockerfile                # Docker image configuration (pulls pgvector)
+├── init-pgvector.sql         # SQL initialization script for pgvector setup
+├── terraform.tfstate         # Terraform state file (git ignored)
+├── terraform.tfstate.backup  # Terraform state backup
+└── README.md                 # This file
+```
+
+## File Descriptions
+
+- **main.tf**: Defines the complete stack:
+  - Custom bridge network for container communication
+  - PostgreSQL container with pgvector
+  - DBHub (Bytebase) container
+  - Volume and file mounts
+  
+- **variables.tf**: Configurable inputs:
+  - Database credentials
+  - Database name
+  - DBHub port
+
+- **outputs.tf**: Outputs for accessing the deployment:
+  - Connection strings
+  - Container names
+  - Service URLs
+  - Network information
+
+- **init-pgvector.sql**: Automatic initialization:
+  - Creates pgvector extension
+  - Creates sample `items` table with 1536D vectors
+  - Creates IVFFLAT index for fast similarity search
+
+## Configuration Variables
 
 - `postgres_user`: Database username (default: `pgadmin`)
 - `postgres_password`: Database password (sensitive, default: `pgAdmin1`) - **Change this for production!**
 - `postgres_db`: Database name (default: `postgres`)
 - `dbhub_port`: DBHub web interface port (default: `9090`)
 
-## Outputs
+## Deployment Outputs
 
-- `connection_string`: PostgreSQL connection string from host machine (sensitive)
-- `postgres_container_name`: Name of PostgreSQL container
-- `dbhub_container_name`: Name of DBHub container
-- `dbhub_url`: DBHub web interface URL
-- `mcp_network`: Custom bridge network name
-- `postgres_dsn_internal`: PostgreSQL DSN for internal container communication
+After running `terraform apply`, these values are available:
+
+- `connection_string`: PostgreSQL connection string (from host)
+- `postgres_container_name`: Name of PostgreSQL container (`my-postgres`)
+- `dbhub_container_name`: Name of DBHub container (`dbhub`)
+- `dbhub_url`: DBHub web interface URL (`http://localhost:9090`)
+- `mcp_network`: Custom bridge network name (`mcp-network`)
+- `postgres_dsn_internal`: PostgreSQL DSN for container-to-container communication
 
 ## Prerequisites
 
-- Terraform installed
-- Docker running and accessible
+- Terraform installed (`v1.0+`)
+- Docker installed and running
+- 2GB+ available disk space
 
 ## Usage
 
-1. **Initialize Terraform**:
-   ```bash
-   terraform init
-   ```
+### 1. Initialize Terraform
 
-2. **Apply the configuration**:
-   ```bash
-   terraform apply -auto-approve
-   ```
+```bash
+terraform init
+```
 
-   Or with custom variables:
-   ```bash
-   terraform apply -var="postgres_password=your_secure_password" -var="dbhub_port=9090"
-   ```
+### 2. Plan the Deployment (Optional)
 
-3. **Access the services**:
-   - **DBHub Web UI**: Open `http://localhost:9090` in your browser
-   - **PostgreSQL Direct Connection**:
-     ```bash
-     psql postgresql://pgadmin:pgAdmin1@localhost:5432/postgres
-     ```
-   - **Connection String** (from outputs):
-     ```bash
-     terraform output -raw connection_string
-     ```
+```bash
+terraform plan
+```
 
-4. **View container status**:
-   ```bash
-   docker ps | grep -E "dbhub|my-postgres"
-   ```
+### 3. Apply the Configuration
 
-5. **Destroy the resources**:
-   ```bash
-   terraform destroy -auto-approve
-   ```
+**With default credentials:**
+```bash
+terraform apply -auto-approve
+```
+
+**With custom credentials:**
+```bash
+terraform apply \
+  -var="postgres_user=myuser" \
+  -var="postgres_password=mysecurepass" \
+  -var="postgres_db=mydb" \
+  -var="dbhub_port=9090" \
+  -auto-approve
+```
+
+### 4. Verify Deployment
+
+Check containers are running:
+```bash
+docker ps | grep -E "my-postgres|dbhub"
+```
+
+Verify pgvector is initialized:
+```bash
+docker exec my-postgres psql -U pgadmin -d postgres -c "\dt items"
+```
+
+### 5. Access the Services
+
+- **DBHub Web UI**: Open `http://localhost:9090` in your browser
+- **PostgreSQL CLI Connection**:
+  ```bash
+  psql postgresql://pgadmin:pgAdmin1@localhost:5432/postgres
+  ```
+- **Get Connection String from Terraform**:
+  ```bash
+  terraform output -raw connection_string
+  ```
+- **Get DBHub URL**:
+  ```bash
+  terraform output -raw dbhub_url
+  ```
+
+### 6. Destroy the Deployment
+
+```bash
+terraform destroy -auto-approve
+```
+
+**Note**: This removes containers but keeps the `pgdata` volume. To also delete data:
+```bash
+terraform destroy -auto-approve && docker volume rm pgdata
+```
 
 ## DBHub Features
 
-- **Web-based Database Management**: Query, edit, and manage databases through the web interface
-- **Multi-database Support**: Connect to multiple databases
-- **SQL Editor**: Execute and save SQL queries
-- **Schema Management**: View and manage database schemas
-- **Version Control Integration**: Track schema changes
+DBHub (Bytebase) provides a web-based interface for database management:
 
-## Network Details
+- **Web-based Database Management**: Query, edit, and manage databases through the web UI
+- **SQL Editor**: Write, execute, and save SQL queries
+- **Schema Management**: View and manage database schemas visually
+- **Database Comparison**: Compare schemas across databases
+- **Change Tracking**: Version control and track database changes
+- **Multi-database Support**: Connect and manage multiple databases
 
-- **Network Name**: `mcp-network`
-- **Driver**: Bridge
-- **Container-to-Container Communication**: DBHub connects to PostgreSQL using the container name `my-postgres:5432` instead of `localhost:5432`
+## pgvector Integration
 
-## Notes
+### Automatic Setup
 
-- If host port `5432` or `9090` is already in use, you can pass custom port variables or modify the defaults in `variables.tf`
-- Store real secrets in `terraform.tfvars` or a secret manager; avoid committing plaintext passwords
-- The Docker volume `pgdata` persists data across container restarts/destroys
-- The custom bridge network ensures secure and isolated communication between containers
-- PostgreSQL uses `sslmode=disable` for development; enable SSL in production
+pgvector is automatically initialized on container startup:
+
+1. **Extension Created**: `CREATE EXTENSION IF NOT EXISTS vector`
+2. **Sample Table**: `items` table with 1536-dimensional vectors (OpenAI embedding dimension)
+3. **Index Created**: IVFFLAT index for fast similarity search operations
+4. **Pre-loaded**: Vector library loaded via `shared_preload_libraries` for performance
+
+### Verify pgvector Installation
+
+```bash
+# Check if extension is available
+docker exec my-postgres psql -U pgadmin -d postgres -c "SELECT * FROM pg_available_extensions WHERE name = 'vector';"
+
+# Check if extension is created
+docker exec my-postgres psql -U pgadmin -d postgres -c "\dx vector"
+
+# Verify sample table
+docker exec my-postgres psql -U pgadmin -d postgres -c "\dt items"
+```
+
+### Using pgvector
+
+#### 1. Insert Vectors
+
+```sql
+-- Insert sample embeddings
+INSERT INTO items (name, embedding) VALUES 
+('document1', '[0.1, 0.2, 0.3, ... 1536 dimensions]'::vector),
+('document2', '[0.4, 0.5, 0.6, ... 1536 dimensions]'::vector);
+```
+
+#### 2. Search by Similarity
+
+```sql
+-- Cosine similarity search (recommended for embeddings)
+SELECT 
+  name, 
+  embedding <=> '[0.15, 0.25, 0.35, ... 1536 dimensions]'::vector AS distance
+FROM items
+ORDER BY embedding <=> '[0.15, 0.25, 0.35, ... 1536 dimensions]'::vector
+LIMIT 5;
+```
+
+#### 3. Create Custom Indexes
+
+```sql
+-- IVF index for faster searches on large datasets
+CREATE INDEX ON my_table USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
+-- HNSW index (more accurate but slower to build)
+CREATE INDEX ON my_table USING hnsw (embedding vector_cosine_ops);
+```
+
+### pgvector Distance Operations
+
+| Operator | Description | Use Case |
+|----------|-------------|----------|
+| `<->` | Euclidean distance | Geometric data |
+| `<#>` | Negative inner product | Speed optimization |
+| `<=>` | **Cosine distance** | **Embeddings (recommended)** |
+| `@>` | Contains | Array operations |
+| `<@` | Is contained by | Array operations |
+
+### Example: Working with Embeddings
+
+```sql
+-- Create a table for storing documents with embeddings
+CREATE TABLE documents (
+  id BIGSERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  content TEXT,
+  embedding vector(1536),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create index for fast similarity search
+CREATE INDEX ON documents USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
+-- Insert a document with embedding
+INSERT INTO documents (title, content, embedding) 
+VALUES ('My Article', 'Content here...', '[0.1, 0.2, ... 1536 values]'::vector);
+
+-- Find similar documents
+SELECT title, embedding <=> '[0.1, 0.2, ... 1536 values]'::vector AS similarity
+FROM documents
+ORDER BY embedding <=> '[0.1, 0.2, ... 1536 values]'::vector
+LIMIT 10;
+```
+
+## Network Architecture
+
+### Container Communication
+
+```
+Host Machine (localhost)
+    ↓
+    ├── PostgreSQL: localhost:5432
+    └── DBHub: localhost:9090
+
+Docker mcp-network (Bridge)
+    ├── my-postgres (internal): my-postgres:5432
+    └── dbhub (internal): dbhub:8080 (maps to 9090 on host)
+```
+
+### Connection Strings
+
+- **From Host Machine**:
+  ```
+  postgresql://pgadmin:pgAdmin1@localhost:5432/postgres
+  ```
+
+- **From DBHub Container** (internal):
+  ```
+  postgresql://pgadmin:pgAdmin1@my-postgres:5432/postgres
+  ```
+
+- **From Other Containers** (internal):
+  ```
+  postgresql://pgadmin:pgAdmin1@my-postgres:5432/postgres
+  ```
+
+## Storage and Persistence
+
+### Volume Configuration
+
+- **Volume Name**: `pgdata`
+- **Mount Point**: `/var/lib/postgresql` (PostgreSQL 18+ compliant)
+- **Data Location**: `/var/lib/postgresql/18/main` (version-specific)
+- **Persistence**: Survives container restarts and redeployments
+
+### Data Persistence Workflow
+
+```
+Container Start
+    ↓
+Mount /var/lib/postgresql volume
+    ↓
+PostgreSQL initializes or uses existing data
+    ↓
+Init scripts run (init-pgvector.sql)
+    ↓
+Service ready
+```
+
+### Backup Data
+
+```bash
+# Backup volume data
+docker run --rm -v pgdata:/data -v $(pwd):/backup \
+  alpine tar czf /backup/pgdata-backup.tar.gz -C /data .
+
+# Restore volume data
+docker run --rm -v pgdata:/data -v $(pwd):/backup \
+  alpine tar xzf /backup/pgdata-backup.tar.gz -C /data
+```
 
 ## Troubleshooting
 
-**DBHub shows "Connection refused"**:
-- Ensure PostgreSQL container is running: `docker ps | grep my-postgres`
-- Check PostgreSQL logs: `docker logs my-postgres`
+### Common Issues
 
-**Port already in use**:
-- Change the port variable: `terraform apply -var="dbhub_port=8081"`
+**PostgreSQL container fails to start**
+- Check logs: `docker logs my-postgres`
+- Ensure port 5432 is not in use: `lsof -i :5432`
+- Verify volume is accessible: `docker volume ls`
 
-**Cannot connect to DBHub**:
-- Verify the container is running: `docker ps | grep dbhub`
-- Check DBHub logs: `docker logs dbhub`
-- Verify network connectivity: `docker network inspect mcp-network`
+**DBHub cannot connect to PostgreSQL**
+- Verify both containers are running: `docker ps`
+- Check network: `docker network inspect mcp-network`
+- Verify credentials in DBHub UI
+
+**Port 5432 or 9090 already in use**
+```bash
+# Change port
+terraform apply -var="dbhub_port=8081" -auto-approve
+```
+
+**pgvector extension not available**
+- Extension may not be in shared_preload_libraries (this is normal)
+- Create it manually per database: `CREATE EXTENSION IF NOT EXISTS vector;`
+- Verify installation: `SELECT * FROM pg_available_extensions WHERE name = 'vector';`
+
+**PostgreSQL 18+ mount point errors**
+- Must mount at `/var/lib/postgresql` not `/var/lib/postgresql/data`
+- Current configuration is correct
+- If upgrading from older version, delete volume: `docker volume rm pgdata`
+
+### Monitoring
+
+```bash
+# Check container status
+docker ps | grep -E "my-postgres|dbhub"
+
+# View logs
+docker logs my-postgres
+docker logs dbhub
+
+# Execute commands in container
+docker exec -it my-postgres psql -U pgadmin -d postgres
+
+# Inspect volume
+docker volume inspect pgdata
+```
+
+## Security Notes
+
+### Development Setup ⚠️
+
+- Default credentials: `pgadmin:pgAdmin1`
+- No SSL/TLS encryption
+- `sslmode=disable` in connection strings
+- Suitable for **development only**
+
+### Production Setup ✅
+
+For production deployments:
+
+1. **Use strong passwords**:
+   ```bash
+   terraform apply -var="postgres_password=$(openssl rand -base64 32)"
+   ```
+
+2. **Enable SSL/TLS**:
+   - Generate certificates
+   - Update DBHub connection string to use `sslmode=require`
+
+3. **Use secret manager**:
+   - Store credentials in Terraform Cloud/Enterprise
+   - Use AWS Secrets Manager, Azure Key Vault, etc.
+   - Never commit secrets to version control
+
+4. **Network isolation**:
+   - Run in private VPC
+   - Use network policies to restrict access
+   - Consider removing port 5432 external binding
+
+5. **Backup strategy**:
+   - Regular automated backups
+   - Test restore procedures
+   - Keep backups off-site
+
+## Advanced Configuration
+
+### Custom PostgreSQL Settings
+
+```terraform
+env = [
+  "POSTGRES_INIT_ARGS=-c max_connections=200 -c shared_buffers=256MB"
+]
+```
+
+### Using Different Database
+
+```bash
+terraform apply \
+  -var="postgres_db=myapp" \
+  -auto-approve
+```
+
+### Scale Down to Single Database
+
+Remove DBHub and use PostgreSQL directly:
+```bash
+# Edit main.tf to comment out DBHub resource
+terraform apply -auto-approve
+```
+
+## Support and Documentation
+
+- [PostgreSQL Documentation](https://www.postgresql.org/docs/)
+- [pgvector GitHub](https://github.com/pgvector/pgvector)
+- [Bytebase Documentation](https://www.bytebase.com/docs/)
+- [Terraform Docker Provider](https://registry.terraform.io/providers/kreuzwerker/docker/latest)
