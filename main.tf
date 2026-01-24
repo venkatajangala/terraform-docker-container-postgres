@@ -16,7 +16,8 @@ resource "docker_network" "mcp_network" {
 }
 
 resource "docker_image" "postgres" {
-  name = "postgres:18.1-alpine"
+  name         = "pgvector/pgvector:0.8.1-pg18-trixie"
+  keep_locally = false
 }
 
 resource "docker_image" "dbhub" {
@@ -42,12 +43,20 @@ resource "docker_container" "postgres" {
     "POSTGRES_USER=${var.postgres_user}",
     "POSTGRES_PASSWORD=${var.postgres_password}",
     "POSTGRES_DB=${var.postgres_db}",
+    "POSTGRES_INITDB_ARGS=-c shared_preload_libraries=vector"
   ]
 
   mounts {
-    target = "/var/lib/postgresql/data"
+    target = "/var/lib/postgresql"
     source = docker_volume.pgdata.name
     type   = "volume"
+  }
+
+  mounts {
+    target    = "/docker-entrypoint-initdb.d/init-pgvector.sql"
+    source    = abspath("${path.module}/init-pgvector.sql")
+    type      = "bind"
+    read_only = true
   }
 
   networks_advanced {
