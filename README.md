@@ -33,7 +33,7 @@ This Terraform configuration deploys a complete PostgreSQL 18 + pgvector + DBHub
 
 ```
 .
-├── main.tf                    # Main Terraform configuration with Docker resources
+├── main.tf                   # Main Terraform configuration with Docker resources
 ├── variables.tf              # Input variables for customization
 ├── outputs.tf                # Output values for accessing services
 ├── Dockerfile                # Docker image configuration (pulls pgvector)
@@ -201,21 +201,45 @@ docker exec my-postgres psql -U pgadmin -d postgres -c "\dt items"
 #### 1. Insert Vectors
 
 ```sql
--- Insert sample embeddings
+-- The 'items' table has 1536-dimensional vectors (for OpenAI embeddings)
+-- Insert sample embeddings (use real values from your ML model)
 INSERT INTO items (name, embedding) VALUES 
-('document1', '[0.1, 0.2, 0.3, ... 1536 dimensions]'::vector),
-('document2', '[0.4, 0.5, 0.6, ... 1536 dimensions]'::vector);
+('document1', '[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]'::vector);
 ```
 
-#### 2. Search by Similarity
+**Note**: For actual production use with real embeddings from OpenAI or other models, use Python or your application language (see example below).
+
+#### 2. Quick Test with Lower Dimensions
+
+To test pgvector with smaller dimensions before using 1536-dimensional vectors:
 
 ```sql
--- Cosine similarity search (recommended for embeddings)
+-- Create a test table with 3-dimensional vectors
+CREATE TABLE items_test (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT,
+    embedding vector(3)
+);
+
+-- Test with 3-dimensional vectors
+INSERT INTO items_test (name, embedding) VALUES 
+('document1', '[0.1, 0.2, 0.3]'::vector),
+('document2', '[0.4, 0.5, 0.6]'::vector),
+('document3', '[0.5, 0.6, 0.7]'::vector);
+
+-- Query test table
+SELECT * FROM items_test;
+```
+
+#### 3. Search by Similarity
+
+```sql
+-- Cosine similarity search on items table (1536 dimensions)
 SELECT 
   name, 
-  embedding <=> '[0.15, 0.25, 0.35, ... 1536 dimensions]'::vector AS distance
-FROM items
-ORDER BY embedding <=> '[0.15, 0.25, 0.35, ... 1536 dimensions]'::vector
+  embedding <=> embedding AS distance
+FROM items_test
+ORDER BY embedding <=> (SELECT embedding FROM items_test LIMIT 1)
 LIMIT 5;
 ```
 
@@ -223,10 +247,10 @@ LIMIT 5;
 
 ```sql
 -- IVF index for faster searches on large datasets
-CREATE INDEX ON my_table USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX ON items_test USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
 -- HNSW index (more accurate but slower to build)
-CREATE INDEX ON my_table USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX ON items_test USING hnsw (embedding vector_cosine_ops);
 ```
 
 ### pgvector Distance Operations
@@ -247,22 +271,51 @@ CREATE TABLE documents (
   id BIGSERIAL PRIMARY KEY,
   title TEXT NOT NULL,
   content TEXT,
-  embedding vector(1536),
+  embedding vector(3),  -- Use 3 for demo, 1536 for OpenAI embeddings
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create index for fast similarity search
-CREATE INDEX ON documents USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX ON documents USING ivfflat (embedding vector_cosine_ops) WITH (lists = 10);
 
--- Insert a document with embedding
-INSERT INTO documents (title, content, embedding) 
-VALUES ('My Article', 'Content here...', '[0.1, 0.2, ... 1536 values]'::vector);
+-- Insert sample documents with embeddings
+INSERT INTO documents (title, content, embedding) VALUES 
+('Article 1', 'Content here...', '[0.1, 0.2, 0.3]'::vector),
+('Article 2', 'More content...', '[0.15, 0.25, 0.35]'::vector),
+('Article 3', 'Different topic...', '[0.5, 0.6, 0.7]'::vector);
 
--- Find similar documents
-SELECT title, embedding <=> '[0.1, 0.2, ... 1536 values]'::vector AS similarity
+-- Find similar documents (search for embeddings similar to [0.12, 0.22, 0.32])
+SELECT title, embedding <=> '[0.12, 0.22, 0.32]'::vector AS similarity
 FROM documents
-ORDER BY embedding <=> '[0.1, 0.2, ... 1536 values]'::vector
+ORDER BY embedding <=> '[0.12, 0.22, 0.32]'::vector
 LIMIT 10;
+```
+
+### Converting Real Embeddings to pgvector
+
+If you have embeddings from OpenAI or other models:
+
+```python
+# Python example
+import psycopg2
+from pgvector.psycopg2 import register_vector
+
+conn = psycopg2.connect("postgresql://pgadmin:pgAdmin1@localhost:5432/postgres")
+register_vector(conn)
+
+cursor = conn.cursor()
+
+# Assuming you have embeddings from OpenAI
+embedding = [0.1, 0.2, 0.3, ...]  # 1536 dimensions for OpenAI
+
+cursor.execute(
+    "INSERT INTO items (name, embedding) VALUES (%s, %s)",
+    ("My Document", embedding)
+)
+
+conn.commit()
+cursor.close()
+conn.close()
 ```
 
 ## Network Architecture
