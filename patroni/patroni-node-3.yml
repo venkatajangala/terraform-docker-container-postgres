@@ -1,0 +1,104 @@
+scope: pg-ha-cluster
+name: pg-node-3
+namespace: /patroni
+
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: pg-node-3:8008
+
+etcd3:
+  hosts: 
+    - etcd:2379
+  protocol: http
+
+postgresql:
+  data_dir: /var/lib/postgresql/18/main
+  pgpass: /var/lib/postgresql/.pgpass
+  listen: 0.0.0.0:5432
+  connect_address: pg-node-3:5432
+  authentication:
+    superuser:
+      username: postgres
+      password: ${POSTGRES_PASSWORD}
+    replication:
+      username: replicator
+      password: ${REPLICATION_PASSWORD}
+  
+  parameters:
+    max_connections: 200
+    shared_buffers: 256MB
+    effective_cache_size: 1GB
+    maintenance_work_mem: 64MB
+    checkpoint_completion_target: 0.9
+    wal_buffers: 16MB
+    default_statistics_target: 100
+    random_page_cost: 1.1
+    effective_io_concurrency: 200
+    work_mem: 1310kB
+    wal_level: replica
+    max_wal_senders: 10
+    max_replication_slots: 10
+    hot_standby: 'on'
+    hot_standby_feedback: 'on'
+    wal_keep_size: 1GB
+    shared_preload_libraries: 'vector,pg_stat_statements'
+    
+  pg_hba:
+    - type: local
+      database: all
+      user: postgres
+      auth_method: trust
+    - type: local
+      database: replication
+      user: replicator
+      auth_method: trust
+    - type: host
+      database: all
+      user: all
+      address: 127.0.0.1/32
+      auth_method: md5
+    - type: host
+      database: all
+      user: all
+      address: ::1/128
+      auth_method: md5
+    - type: host
+      database: replication
+      user: replicator
+      address: 0.0.0.0/0
+      auth_method: md5
+    - type: host
+      database: all
+      user: all
+      address: 0.0.0.0/0
+      auth_method: md5
+    - type: host
+      database: all
+      user: all
+      address: '::/0'
+      auth_method: md5
+
+  basebackup:
+    command: >
+      pgbackrest backup
+    max_rate: '100M'
+
+  create_replica_methods:
+    - pgbackrest
+    - basebackup
+
+  pgbackrest:
+    command: >
+      pgbackrest restore
+      --delta
+      --force
+      --log-level-console=info
+    keep_data: yes
+    no_params: yes
+
+  recovery_conf:
+    restore_command: pgbackrest archive-get %p "%f"
+
+watchdog:
+  mode: automatic
+  device: /dev/null

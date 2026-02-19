@@ -1,0 +1,35 @@
+FROM pgvector/pgvector:0.8.1-pg18-trixie
+
+# Install Patroni and dependencies
+RUN apt-get update -o Acquire::http::timeout=60 && apt-get install -y --no-install-recommends \
+    python3-pip \
+    python3-dev \
+    python3-psycopg2 \
+    postgresql-contrib \
+    pgbackrest \
+    curl \
+    wget \
+    netcat-openbsd \
+    sudo \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Install Patroni and dependencies (skip pip upgrade due to Debian PEP 668)
+RUN pip3 install --no-cache-dir --break-system-packages \
+    'patroni[etcd3]>=3.0.0,<4.0.0' \
+    psycopg2-binary \
+    pyyaml \
+    tenacity
+
+# Create pgbackrest directories
+RUN mkdir -p /var/lib/pgbackrest /var/log/pgbackrest && \
+    chown -R postgres:postgres /var/lib/pgbackrest /var/log/pgbackrest
+
+# Copy entrypoint script
+COPY entrypoint-patroni.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint-patroni.sh
+
+# Expose PostgreSQL and Patroni REST API ports
+EXPOSE 5432 8008
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-patroni.sh"]
+CMD ["patroni", "/etc/patroni/patroni.yml"]
