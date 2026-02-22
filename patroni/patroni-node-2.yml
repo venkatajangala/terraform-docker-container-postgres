@@ -33,10 +33,10 @@ bootstrap:
         - 'local replication all trust'
         - 'host all all 127.0.0.1/32 trust'
         - 'host replication all 127.0.0.1/32 trust'
-        - 'host all all 172.20.0.0/16 trust'
-        - 'host replication all 172.20.0.0/16 trust'
+        - 'host all all 172.20.0.0/16 scram-sha-256'
+        - 'host replication all 172.20.0.0/16 scram-sha-256'
         - 'host all all ::1/128 trust'
-        - 'host all all ::/0 trust'
+        - 'host all all ::/0 scram-sha-256'
 
 restapi:
   listen: 0.0.0.0:8008
