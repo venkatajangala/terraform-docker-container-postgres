@@ -86,24 +86,85 @@ output "ha_network" {
 
 output "cluster_info" {
   value = {
-    cluster_name          = "pg-ha-cluster"
-    dcs_type              = "etcd3"
-    total_nodes           = 3
-    replication_type      = "streaming"
-    pgvector_version      = "0.8.1"
-    postgres_version      = "18"
-    patroni_scope         = "pg-ha-cluster"
+    cluster_name     = "pg-ha-cluster"
+    dcs_type         = "etcd3"
+    total_nodes      = 3
+    replication_type = "streaming"
+    pgvector_version = "0.8.1"
+    postgres_version = "18"
+    patroni_scope    = "pg-ha-cluster"
   }
   description = "Complete HA cluster information"
 }
 
 output "connection_info" {
   value = {
-    primary_external  = "localhost:5432"
+    primary_external   = "localhost:5432"
     replica_1_external = "localhost:5433"
     replica_2_external = "localhost:5434"
-    postgres_user     = var.postgres_user
-    postgres_db       = var.postgres_db
+    postgres_user      = var.postgres_user
+    postgres_db        = var.postgres_db
   }
   description = "Quick connection reference (passwords shown separately)"
+}
+
+# ============================================================================
+# PgBouncer Connection Pooling Outputs
+# ============================================================================
+
+output "pgbouncer_enabled" {
+  value       = var.pgbouncer_enabled
+  description = "PgBouncer connection pooling status"
+}
+
+output "pgbouncer_replicas" {
+  value       = var.pgbouncer_enabled ? var.pgbouncer_replicas : 0
+  description = "Number of active PgBouncer instances"
+}
+
+output "pgbouncer_primary_endpoint" {
+  value       = var.pgbouncer_enabled ? "postgresql://${var.postgres_user}:${var.postgres_password}@localhost:${var.pgbouncer_external_port_base}/${var.postgres_db}" : null
+  sensitive   = true
+  description = "PgBouncer primary pooling endpoint (external)"
+}
+
+output "pgbouncer_external_ports" {
+  value = var.pgbouncer_enabled ? {
+    pgbouncer_1 = var.pgbouncer_replicas >= 1 ? var.pgbouncer_external_port_base : null
+    pgbouncer_2 = var.pgbouncer_replicas >= 2 ? var.pgbouncer_external_port_base + 1 : null
+    pgbouncer_3 = var.pgbouncer_replicas >= 3 ? var.pgbouncer_external_port_base + 2 : null
+  } : null
+  description = "External ports for individual PgBouncer instances"
+}
+
+output "pgbouncer_internal_endpoints" {
+  value = var.pgbouncer_enabled ? [
+    "pgbouncer-1:6432",
+    "pgbouncer-2:6432",
+    "pgbouncer-3:6432"
+  ] : []
+  description = "Internal container network endpoints for PgBouncer instances"
+}
+
+output "pgbouncer_config" {
+  value = var.pgbouncer_enabled ? {
+    pool_mode         = var.pgbouncer_pool_mode
+    max_client_conn   = var.pgbouncer_max_client_conn
+    default_pool_size = var.pgbouncer_default_pool_size
+    min_pool_size     = var.pgbouncer_min_pool_size
+    reserve_pool_size = var.pgbouncer_reserve_pool_size
+    port              = var.pgbouncer_port
+  } : null
+  description = "PgBouncer configuration settings"
+}
+
+output "pgbouncer_usage_guide" {
+  value = var.pgbouncer_enabled ? {
+    description = "Use PgBouncer for connection pooling to improve performance and scalability"
+    usage_1     = "Connect via PgBouncer (recommended): psql -h localhost -p ${var.pgbouncer_external_port_base} -U ${var.postgres_user} -d ${var.postgres_db}"
+    usage_2     = "Direct PostgreSQL connection: psql -h localhost -p 5432 -U ${var.postgres_user} -d ${var.postgres_db}"
+    benefits    = "Reduced connection overhead, better resource utilization, failover support, HA pooling"
+    pool_mode   = "Transaction mode - new connection per transaction for maximum compatibility"
+  } : null
+  description = "PgBouncer usage instructions and benefits"
 }

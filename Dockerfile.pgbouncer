@@ -1,0 +1,32 @@
+FROM debian:bookworm-slim
+
+# Install PgBouncer and dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pgbouncer \
+    postgresql-client \
+    curl \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Create pgbouncer user and directories
+RUN mkdir -p /etc/pgbouncer /var/log/pgbouncer && \
+    chown -R postgres:postgres /etc/pgbouncer /var/log/pgbouncer && \
+    chmod 750 /etc/pgbouncer
+
+# Expose PgBouncer port
+EXPOSE 6432
+
+# Health check - verify connection
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
+    CMD psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1" || exit 1
+
+# Copy configuration
+COPY pgbouncer/pgbouncer.ini /etc/pgbouncer/pgbouncer.ini
+COPY pgbouncer/userlist.txt /etc/pgbouncer/userlist.txt
+
+# Set proper permissions
+RUN chown postgres:postgres /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt && \
+    chmod 640 /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+
+# Start PgBouncer in foreground to Docker logs
+CMD ["pgbouncer", "-u", "postgres", "/etc/pgbouncer/pgbouncer.ini"]

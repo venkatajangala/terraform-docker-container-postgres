@@ -141,9 +141,9 @@ resource "docker_container" "pg_node_1" {
   }
 
   mounts {
-    target   = "/var/lib/postgresql"
-    source   = docker_volume.pg_node_1_data.name
-    type     = "volume"
+    target = "/var/lib/postgresql"
+    source = docker_volume.pg_node_1_data.name
+    type   = "volume"
   }
 
   mounts {
@@ -154,15 +154,15 @@ resource "docker_container" "pg_node_1" {
   }
 
   mounts {
-    target   = "/var/lib/pgbackrest"
-    source   = docker_volume.pgbackrest_repo.name
-    type     = "volume"
+    target = "/var/lib/pgbackrest"
+    source = docker_volume.pgbackrest_repo.name
+    type   = "volume"
   }
 
   mounts {
-    target   = "/var/log/pgbackrest"
-    source   = docker_volume.pgbackrest_repo.name
-    type     = "volume"
+    target = "/var/log/pgbackrest"
+    source = docker_volume.pgbackrest_repo.name
+    type   = "volume"
   }
 
   networks_advanced {
@@ -214,9 +214,9 @@ resource "docker_container" "pg_node_2" {
   }
 
   mounts {
-    target   = "/var/lib/postgresql"
-    source   = docker_volume.pg_node_2_data.name
-    type     = "volume"
+    target = "/var/lib/postgresql"
+    source = docker_volume.pg_node_2_data.name
+    type   = "volume"
   }
 
   mounts {
@@ -227,15 +227,15 @@ resource "docker_container" "pg_node_2" {
   }
 
   mounts {
-    target   = "/var/lib/pgbackrest"
-    source   = docker_volume.pgbackrest_repo.name
-    type     = "volume"
+    target = "/var/lib/pgbackrest"
+    source = docker_volume.pgbackrest_repo.name
+    type   = "volume"
   }
 
   mounts {
-    target   = "/var/log/pgbackrest"
-    source   = docker_volume.pgbackrest_repo.name
-    type     = "volume"
+    target = "/var/log/pgbackrest"
+    source = docker_volume.pgbackrest_repo.name
+    type   = "volume"
   }
 
   networks_advanced {
@@ -287,9 +287,9 @@ resource "docker_container" "pg_node_3" {
   }
 
   mounts {
-    target   = "/var/lib/postgresql"
-    source   = docker_volume.pg_node_3_data.name
-    type     = "volume"
+    target = "/var/lib/postgresql"
+    source = docker_volume.pg_node_3_data.name
+    type   = "volume"
   }
 
   mounts {
@@ -300,15 +300,15 @@ resource "docker_container" "pg_node_3" {
   }
 
   mounts {
-    target   = "/var/lib/pgbackrest"
-    source   = docker_volume.pgbackrest_repo.name
-    type     = "volume"
+    target = "/var/lib/pgbackrest"
+    source = docker_volume.pgbackrest_repo.name
+    type   = "volume"
   }
 
   mounts {
-    target   = "/var/log/pgbackrest"
-    source   = docker_volume.pgbackrest_repo.name
-    type     = "volume"
+    target = "/var/log/pgbackrest"
+    source = docker_volume.pgbackrest_repo.name
+    type   = "volume"
   }
 
   networks_advanced {
@@ -339,6 +339,153 @@ resource "docker_container" "dbhub" {
   env = [
     "BYTEBASE_POSTGRES_URL=postgres://${var.postgres_user}:${var.postgres_password}@pg-node-1:5432/${var.postgres_db}?sslmode=disable"
   ]
+
+  networks_advanced {
+    name = docker_network.pg_ha_network.name
+  }
+
+  depends_on = [
+    docker_container.pg_node_1,
+    docker_container.pg_node_2,
+    docker_container.pg_node_3
+  ]
+}
+
+# ============================================================================
+# PgBouncer - Connection Pooling Layer for HA Configuration
+# ============================================================================
+
+resource "docker_image" "pgbouncer" {
+  count = var.pgbouncer_enabled ? 1 : 0
+  name  = "pgbouncer:ha"
+  build {
+    context    = path.module
+    dockerfile = "Dockerfile.pgbouncer"
+  }
+}
+
+resource "docker_volume" "pgbouncer_logs" {
+  count = var.pgbouncer_enabled ? 1 : 0
+  name  = "pgbouncer-logs"
+}
+
+# PgBouncer Instance 1
+resource "docker_container" "pgbouncer_1" {
+  count   = var.pgbouncer_enabled && var.pgbouncer_replicas >= 1 ? 1 : 0
+  name    = "pgbouncer-1"
+  image   = docker_image.pgbouncer[0].image_id
+  restart = "unless-stopped"
+
+  ports {
+    internal = 6432
+    external = var.pgbouncer_external_port_base
+  }
+
+  mounts {
+    target    = "/etc/pgbouncer/pgbouncer.ini"
+    source    = abspath("${path.module}/pgbouncer/pgbouncer.ini")
+    type      = "bind"
+    read_only = true
+  }
+
+  mounts {
+    target    = "/etc/pgbouncer/userlist.txt"
+    source    = abspath("${path.module}/pgbouncer/userlist.txt")
+    type      = "bind"
+    read_only = true
+  }
+
+  mounts {
+    target = "/var/log/pgbouncer"
+    source = docker_volume.pgbouncer_logs[0].name
+    type   = "volume"
+  }
+
+  networks_advanced {
+    name = docker_network.pg_ha_network.name
+  }
+
+  depends_on = [
+    docker_container.pg_node_1,
+    docker_container.pg_node_2,
+    docker_container.pg_node_3
+  ]
+}
+
+# PgBouncer Instance 2
+resource "docker_container" "pgbouncer_2" {
+  count   = var.pgbouncer_enabled && var.pgbouncer_replicas >= 2 ? 1 : 0
+  name    = "pgbouncer-2"
+  image   = docker_image.pgbouncer[0].image_id
+  restart = "unless-stopped"
+
+  ports {
+    internal = 6432
+    external = var.pgbouncer_external_port_base + 1
+  }
+
+  mounts {
+    target    = "/etc/pgbouncer/pgbouncer.ini"
+    source    = abspath("${path.module}/pgbouncer/pgbouncer.ini")
+    type      = "bind"
+    read_only = true
+  }
+
+  mounts {
+    target    = "/etc/pgbouncer/userlist.txt"
+    source    = abspath("${path.module}/pgbouncer/userlist.txt")
+    type      = "bind"
+    read_only = true
+  }
+
+  mounts {
+    target = "/var/log/pgbouncer"
+    source = docker_volume.pgbouncer_logs[0].name
+    type   = "volume"
+  }
+
+  networks_advanced {
+    name = docker_network.pg_ha_network.name
+  }
+
+  depends_on = [
+    docker_container.pg_node_1,
+    docker_container.pg_node_2,
+    docker_container.pg_node_3
+  ]
+}
+
+# PgBouncer Instance 3 (Optional)
+resource "docker_container" "pgbouncer_3" {
+  count   = var.pgbouncer_enabled && var.pgbouncer_replicas >= 3 ? 1 : 0
+  name    = "pgbouncer-3"
+  image   = docker_image.pgbouncer[0].image_id
+  restart = "unless-stopped"
+
+  ports {
+    internal = 6432
+    external = var.pgbouncer_external_port_base + 2
+  }
+
+  mounts {
+    target    = "/etc/pgbouncer/pgbouncer.ini"
+    source    = abspath("${path.module}/pgbouncer/pgbouncer.ini")
+    type      = "bind"
+    read_only = true
+  }
+
+  mounts {
+    target    = "/etc/pgbouncer/userlist.txt"
+    source    = abspath("${path.module}/pgbouncer/userlist.txt")
+    type      = "bind"
+    read_only = true
+  }
+
+  mounts {
+    target = "/var/log/pgbouncer"
+    source = docker_volume.pgbouncer_logs[0].name
+    type   = "volume"
+  }
 
   networks_advanced {
     name = docker_network.pg_ha_network.name
