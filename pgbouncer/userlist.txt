@@ -2,5 +2,5 @@
 ;; Format: "username" "password_hash"
 ;; Passwords can be plain text, MD5 ("md5" prefix), or SCRAM-SHA-256
 
-"pgadmin" "scram-sha-256$4096:KwjHPmfJXb3Sao1P+c3qlA==$5llQDlEwWVHPl5lqECkGXmQdV1X5zGwRU5L6z5R2u1w="
-"replicator" "scram-sha-256$4096:KwjHPmfJXb3Sao1P+c3qlA==$5llQDlEwWVHPl5lqECkGXmQdV1X5zGwRU5L6z5R2u1w="
+"pgadmin" "pgAdmin1"
+"replicator" "replicator1"
