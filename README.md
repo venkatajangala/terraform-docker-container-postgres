@@ -20,7 +20,9 @@ sleep 150
 docker ps | grep -E 'pg-node|pgbouncer|etcd'
 
 # Test connection via PgBouncer
+export PGPASSWORD='pgAdmin1'
 psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT version();"
+unset PGPASSWORD
 ```
 
 ✅ **Done!** Your PostgreSQL HA cluster is ready.
@@ -140,13 +142,32 @@ docker logs pg-node-1 -f
 docker logs pgbouncer-1 -f
 
 # Test direct PostgreSQL connection
-psql -h localhost -p 5432 -U pgadmin -d postgres -c "SELECT 1;"
+PGPASSWORD='pgAdmin1' psql -h localhost -p 5432 -U pgadmin -d postgres -c "SELECT 1;"
 
-# Test pooled connection
-psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1;"
+# Test pooled connection via PgBouncer
+PGPASSWORD='pgAdmin1' psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1;"
+
+# View PgBouncer admin console
+PGPASSWORD='pgAdmin1' psql -h localhost -p 6432 -U pgadmin -d pgbouncer
 ```
 
 ## 🧪 Testing
+
+### PgBouncer Authentication Tests
+
+✅ **PASSED** - Authentication Configuration: SCRAM-SHA-256
+
+| Test | Command | Result | 
+|------|---------|--------|
+| pgbouncer-1 Version | `docker exec pgbouncer-1 bash -c "PGPASSWORD='pgAdmin1' psql -h localhost -p 6432 -U pgadmin -d postgres -c \"SELECT version();\""` | PostgreSQL 18.2 ✅ |
+| pgbouncer-2 Version | `docker exec pgbouncer-2 bash -c "PGPASSWORD='pgAdmin1' psql -h localhost -p 6432 -U pgadmin -d postgres -c \"SELECT version();\""` | PostgreSQL 18.2 ✅ |
+| Pool Status | `PGPASSWORD='pgAdmin1' psql -h localhost -p 6432 -U pgadmin -d pgbouncer -c "SHOW POOLS;"` | 2 pools routed ✅ |
+| Statistics | `PGPASSWORD='pgAdmin1' psql -h localhost -p 6432 -U pgadmin -d pgbouncer -c "SHOW STATS;"` | Active connections tracked ✅ |
+
+**Authentication Method: SCRAM-SHA-256**
+- Plain text passwords in `pgbouncer/userlist.txt`
+- No MD5 hashing (secure SCRAM negotiation with databases)
+- Password parameter required: `PGPASSWORD='pgAdmin1'`
 
 ### Verify Cluster Health
 ```bash
