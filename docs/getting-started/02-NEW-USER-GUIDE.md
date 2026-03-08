@@ -87,22 +87,32 @@ You've deployed a **production-ready PostgreSQL HA cluster** with high availabil
 
 **Option A: Via PgBouncer (Recommended)**
 ```bash
+# Method 1: Using environment variable
+export PGPASSWORD='pgAdmin1'
 psql -h localhost -p 6432 -U pgadmin -d postgres
-Password: pgAdmin1
+unset PGPASSWORD
+
+# Method 2: Interactive password prompt
+psql -h localhost -p 6432 -U pgadmin -d postgres -W
+
+# Method 3: Connection string with password
+psql "postgresql://pgadmin:pgAdmin1@localhost:6432/postgres"
 ```
 
 **Option B: Direct to Primary**
 ```bash
+export PGPASSWORD='pgAdmin1'
 psql -h localhost -p 5432 -U pgadmin -d postgres
 ```
 
 **Option C: Direct to Replica (Read-Only)**
 ```bash
+export PGPASSWORD='pgAdmin1'
 psql -h localhost -p 5433 -U pgadmin -d postgres  # Replica 1
 psql -h localhost -p 5434 -U pgadmin -d postgres  # Replica 2
 ```
 
-**Recommendation**: Use PgBouncer (Option A) for all applications.
+**Recommendation**: Use PgBouncer (Option A) for all applications. See [PgBouncer Authentication](../pgbouncer/AUTHENTICATION.md) for detailed password handling options.
 
 ### Scenario 2: The Primary Failed - What Happens?
 

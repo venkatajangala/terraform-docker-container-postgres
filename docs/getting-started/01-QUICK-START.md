@@ -56,15 +56,23 @@ docker ps | grep -E 'pg-node|pgbouncer|etcd'
 # Test direct PostgreSQL
 docker exec pg-node-1 psql -U postgres -d postgres -c "SELECT version();"
 
-# Test via PgBouncer (pooled connection)
+# Test via PgBouncer (pooled connection) - REQUIRES PASSWORD
+export PGPASSWORD='pgAdmin1'
 psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 'Connected via PgBouncer!';"
+unset PGPASSWORD
 ```
 
 **Expected output:**
 ```
 ✓ All 7 containers running (pg-node-1, pg-node-2, pg-node-3, pgbouncer-1, pgbouncer-2, etcd, dbhub)
-✓ PostgreSQL version query returns version info
-✓ PgBouncer query returns "Connected via PgBouncer!"
+✓ PostgreSQL 18.2 version info
+✓ PgBouncer response: "Connected via PgBouncer!"
+```
+
+⚠️ **Important:** PgBouncer requires password authentication via PGPASSWORD environment variable or `-W` flag
+```bash
+# Alternative method with interactive password prompt
+psql -h localhost -p 6432 -U pgadmin -d postgres -W
 ```
 
 ### Step 4: Check Cluster Health (1 minute)
@@ -101,8 +109,19 @@ postgresql://pgadmin:pgAdmin1@localhost:6432/postgres
 psycopg2.connect("dbname=postgres user=pgadmin host=localhost port=6432 password=pgAdmin1")
 
 # Example: Java/JDBC
-jdbc:postgresql://localhost:6432/postgres
+jdbc:postgresql://localhost:6432/postgres?user=pgadmin&password=pgAdmin1
+
+# Example: CLI with password
+export PGPASSWORD='pgAdmin1'
+psql -h localhost -p 6432 -U pgadmin -d postgres
+unset PGPASSWORD
 ```
+
+**Authentication Details:**
+- Method: SCRAM-SHA-256 (secure hash negotiation)
+- Default user: `pgadmin`
+- Default password: `pgAdmin1` (change in production!)
+- Port: `6432` (via PgBouncer) or `5432` (direct PostgreSQL)
 
 ### Access Web UI
 ```bash

@@ -421,9 +421,10 @@ DBHub:        ~500 MB RAM
 └─────────────────────────────────────┘
 
 Default Authentication:
-  - pgbouncer/userlist.txt: Contains password hashes
-  - SCRAM-SHA-256: Password encrypted in transit
+  - pgbouncer/userlist.txt: Contains plain text passwords
+  - auth_type: SCRAM-SHA-256 (secure hash negotiation with PostgreSQL)
   - No TLS: Internal network only (not suitable for remote access)
+  - Password authentication required via PGPASSWORD env var or connection string
 
 For Production:
   - Add TLS/SSL layer
