@@ -7,8 +7,8 @@ variable "postgres_user" {
 variable "postgres_password" {
   type        = string
   sensitive   = true
-  default     = "pgAdmin1"
-  description = "PostgreSQL superuser password - CHANGE THIS FOR PRODUCTION!"
+  default     = ""
+  description = "PostgreSQL superuser password. Leave empty to use randomly generated password from random_password.db_admin_password. Set via TF_VAR_postgres_password or ha-test.tfvars."
 }
 
 variable "postgres_db" {
@@ -20,8 +20,8 @@ variable "postgres_db" {
 variable "replication_password" {
   type        = string
   sensitive   = true
-  default     = "replicator1"
-  description = "PostgreSQL replication user password - CHANGE THIS FOR PRODUCTION!"
+  default     = ""
+  description = "PostgreSQL replication user password. Leave empty to use randomly generated password from random_password.db_replication_password. Set via TF_VAR_replication_password or ha-test.tfvars."
 }
 
 variable "dbhub_port" {

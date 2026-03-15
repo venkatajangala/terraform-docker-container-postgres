@@ -24,6 +24,38 @@ resource "random_password" "infisical_api_key" {
   special = true
 }
 
+resource "random_password" "infisical_db_password" {
+  length  = var.password_length
+  special = true
+}
+
+# ============================================================================
+# Redis Cache (required by Infisical server)
+# ============================================================================
+
+resource "docker_image" "redis" {
+  count = var.infisical_enabled ? 1 : 0
+  name  = "redis:7-alpine"
+}
+
+resource "docker_container" "infisical_redis" {
+  count   = var.infisical_enabled ? 1 : 0
+  name    = "infisical-redis"
+  image   = docker_image.redis[0].image_id
+  restart = "unless-stopped"
+
+  networks_advanced {
+    name = docker_network.pg_ha_network.name
+  }
+
+  healthcheck {
+    test     = ["CMD", "redis-cli", "ping"]
+    interval = "10s"
+    timeout  = "5s"
+    retries  = 5
+  }
+}
+
 # ============================================================================
 # Infisical PostgreSQL Backend Database
 # ============================================================================
@@ -47,7 +79,7 @@ resource "docker_container" "infisical_postgres" {
   env = [
     "POSTGRES_DB=infisical",
     "POSTGRES_USER=infisical",
-    "POSTGRES_PASSWORD=infisical-secure-password",
+    "POSTGRES_PASSWORD=${random_password.infisical_db_password.result}",
     "PGDATA=/var/lib/postgresql/data/pgdata"
   ]
 
@@ -80,11 +112,7 @@ resource "docker_container" "infisical_postgres" {
 
 resource "docker_image" "infisical" {
   count = var.infisical_enabled ? 1 : 0
-  name  = "infisical:latest"
-  build {
-    context    = path.module
-    dockerfile = "Dockerfile.infisical"
-  }
+  name  = "infisical/infisical:latest"
 }
 
 resource "docker_volume" "infisical_data" {
@@ -99,17 +127,17 @@ resource "docker_container" "infisical" {
   restart = "unless-stopped"
 
   env = [
-    "INFISICAL_PORT=8020",
-    "INFISICAL_DB_HOST=infisical-postgres",
-    "INFISICAL_DB_PORT=5432",
-    "INFISICAL_DB_NAME=infisical",
-    "INFISICAL_DB_USER=infisical",
-    "INFISICAL_DB_PASSWORD=infisical-secure-password",
+    "DB_CONNECTION_URI=postgresql://infisical:${random_password.infisical_db_password.result}@infisical-postgres:5432/infisical",
+    "REDIS_URL=redis://infisical-redis:6379",
+    "ENCRYPTION_KEY=${substr(random_password.infisical_api_key.result, 0, 32)}",
+    "AUTH_SECRET=${random_password.pgbouncer_admin_password.result}",
+    "SITE_URL=http://localhost:${var.infisical_port}",
+    "PORT=8080",
     "NODE_ENV=production"
   ]
 
   ports {
-    internal = 8020
+    internal = 8080
     external = var.infisical_port
   }
 
@@ -124,11 +152,12 @@ resource "docker_container" "infisical" {
   }
 
   depends_on = [
-    docker_container.infisical_postgres
+    docker_container.infisical_postgres,
+    docker_container.infisical_redis
   ]
 
   healthcheck {
-    test     = ["CMD", "curl", "-f", "http://localhost:8020/api/v1/health"]
+    test     = ["CMD", "curl", "-f", "http://localhost:8080/api/status"]
     interval = "15s"
     timeout  = "5s"
     retries  = 3
@@ -158,7 +187,7 @@ resource "null_resource" "infisical_init_secrets" {
       # Try to connect to Infisical
       max_retries=30
       attempt=0
-      until curl -s http://localhost:${var.infisical_port}/api/v1/health > /dev/null 2>&1; do
+      until curl -s http://localhost:${var.infisical_port}/api/status > /dev/null 2>&1; do
         attempt=$((attempt + 1))
         if [ $attempt -gt $max_retries ]; then
           echo "Infisical failed to start after $max_retries attempts"
