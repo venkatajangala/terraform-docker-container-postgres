@@ -4,6 +4,53 @@ set -e
 # Add PostgreSQL binaries to PATH
 export PATH="/usr/lib/postgresql/18/bin:$PATH"
 
+# ============================================================================
+# SECTION 1: Infisical Secrets Integration
+# ============================================================================
+
+echo "=== Checking Infisical integration ==="
+
+# Source Infisical utilities if available
+if [ -f /etc/patroni/infisical-secrets.sh ]; then
+  source /etc/patroni/infisical-secrets.sh
+  
+  # Verify Infisical is available
+  if [ -n "$INFISICAL_API_KEY" ] && [ -n "$INFISICAL_PROJECT_ID" ]; then
+    echo "Infisical integration enabled"
+    
+    # Attempt to fetch secrets from Infisical
+    if verify_infisical_connection 2>/dev/null; then
+      echo "Fetching secrets from Infisical..."
+      
+      # Fetch PostgreSQL admin password
+      if ! POSTGRES_PASSWORD=$(fetch_secret_from_infisical "db-admin-password" 2>/dev/null); then
+        echo "WARNING: Could not fetch db-admin-password from Infisical, using environment value"
+      else
+        echo "Successfully fetched db-admin-password from Infisical"
+        export POSTGRES_PASSWORD
+      fi
+      
+      # Fetch replication password
+      if ! REPLICATION_PASSWORD=$(fetch_secret_from_infisical "db-replication-password" 2>/dev/null); then
+        echo "WARNING: Could not fetch db-replication-password from Infisical, using environment value"
+      else
+        echo "Successfully fetched db-replication-password from Infisical"
+        export REPLICATION_PASSWORD
+      fi
+    else
+      echo "WARNING: Infisical not reachable, using passwords from environment variables"
+    fi
+  else
+    echo "Infisical integration not configured (missing API key or project ID)"
+  fi
+else
+  echo "Infisical utilities not available, skipping secret fetching"
+fi
+
+# ============================================================================
+# SECTION 2: Original Patroni Setup
+# ============================================================================
+
 # Wait for etcd to be ready
 echo "Waiting for etcd to be ready..."
 until curl -s http://etcd:2379/version > /dev/null 2>&1; do

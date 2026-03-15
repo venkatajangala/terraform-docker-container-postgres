@@ -7,6 +7,7 @@
 [![Patroni](https://img.shields.io/badge/Patroni-3.3.8-blue)]()
 [![Docker](https://img.shields.io/badge/Docker-Compose-blue)]()
 [![Terraform](https://img.shields.io/badge/Terraform-IaC-blue)]()
+[![Secrets](https://img.shields.io/badge/Secrets-Infisical-purple)]()
 
 ## 🚀 Quick Start (5 Minutes)
 
@@ -69,6 +70,13 @@ unset PGPASSWORD
 - DBHub (Bytebase) for database administration
 - Schema browser
 - Query execution interface
+
+### ✅ Secrets Management (Infisical)
+- Secure password storage and encryption
+- Automated password generation and rotation
+- Zero-downtime credential updates
+- Multi-environment support (dev/staging/production)
+- Audit logging and compliance
 
 ## 📊 System Architecture
 
@@ -149,6 +157,29 @@ PGPASSWORD='pgAdmin1' psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELEC
 
 # View PgBouncer admin console
 PGPASSWORD='pgAdmin1' psql -h localhost -p 6432 -U pgadmin -d pgbouncer
+```
+
+### Secrets Management (Infisical)
+
+```bash
+# Access Infisical web UI
+open http://localhost:8020
+
+# Check Infisical health
+curl -s http://localhost:8020/api/v1/health | python3 -m json.tool
+
+# View Infisical application logs
+docker logs infisical -f
+
+# Rotate passwords (trigger secret refresh in containers)
+docker restart pg-node-1
+docker restart pgbouncer-1
+
+# View PgBouncer credentials generated from Infisical
+docker exec pgbouncer-1 cat /etc/pgbouncer/userlist.txt
+
+# Check PostgreSQL secret injection logs
+docker logs pg-node-1 | grep -i infisical
 ```
 
 ## 🧪 Testing
@@ -273,8 +304,36 @@ See [Security Hardening](docs/reference/SECURITY.md) for details.
 | **New Team Member** | [New User Guide](docs/getting-started/02-NEW-USER-GUIDE.md) |
 | **Developer** | [Quick Start](docs/getting-started/01-QUICK-START.md) + [Operations](docs/guides/02-OPERATIONS.md) |
 | **DevOps/SRE** | [Architecture](docs/architecture/ARCHITECTURE.md) + [Configuration](docs/reference/CONFIG-REFERENCE.md) |
+| **Secrets Management** | [Infisical Quick Start](docs/getting-started/INFISICAL-QUICKSTART.md) + [Integration Guide](docs/INFISICAL-INTEGRATION.md) |
 | **Troubleshooting** | [Troubleshooting Guide](docs/guides/03-TROUBLESHOOTING.md) |
 | **Advanced Users** | [Complete Documentation Index](docs/README.md) |
+
+## 🔑 Secrets Management
+
+This stack includes **Infisical** for secure secrets management:
+
+✅ **Features**:
+- Automated password generation and rotation
+- Encrypted secret storage with audit logging
+- Zero-downtime secrets rotation for PostgreSQL, Patroni, and PgBouncer
+- Runtime injection of credentials into containers
+- RESTful API for programmatic access
+- Multi-environment support (dev/staging/production)
+
+### Quick Start
+```bash
+# Secrets are automatically managed by Infisical
+# Access the Infisical dashboard
+open http://localhost:8020
+
+# Rotate a password without downtime
+docker restart pg-node-1  # Fetches fresh secrets from Infisical
+```
+
+📚 **Learn More**:
+- [Infisical Quick Start (5 min)](docs/getting-started/INFISICAL-QUICKSTART.md) - Deploy and verify
+- [Integration Guide (Technical)](docs/INFISICAL-INTEGRATION.md) - Architecture & implementation
+- [Troubleshooting](docs/guides/INFISICAL-TROUBLESHOOTING.md) - Common issues and solutions
 
 ## 🚨 Troubleshooting
 

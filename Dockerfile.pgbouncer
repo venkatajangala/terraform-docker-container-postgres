@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pgbouncer \
     postgresql-client-18 \
     netcat-openbsd \
+    jq \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Create pgbouncer user and directories
@@ -26,13 +27,9 @@ EXPOSE 6432
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
     CMD psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1" || exit 1
 
-# Copy configuration
-COPY pgbouncer/pgbouncer.ini /etc/pgbouncer/pgbouncer.ini
-COPY pgbouncer/userlist.txt /etc/pgbouncer/userlist.txt
-
-# Set proper permissions
-RUN chown postgres:postgres /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt && \
-    chmod 640 /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+# Copy entrypoint script
+COPY entrypoint-pgbouncer.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint-pgbouncer.sh
 
 # Start PgBouncer in foreground to Docker logs
-CMD ["pgbouncer", "-u", "postgres", "/etc/pgbouncer/pgbouncer.ini"]
+ENTRYPOINT ["/usr/local/bin/entrypoint-pgbouncer.sh"]

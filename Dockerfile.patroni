@@ -11,6 +11,7 @@ RUN apt-get update -o Acquire::http::timeout=60 && apt-get install -y --no-insta
     wget \
     netcat-openbsd \
     sudo \
+    jq \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Install Patroni and dependencies (skip pip upgrade due to Debian PEP 668)
@@ -86,9 +87,10 @@ fi
 INITDB_EOF
 RUN chmod +x /usr/lib/postgresql/18/bin/initdb
 
-# Copy entrypoint script
+# Copy entrypoint script and Infisical utilities
 COPY entrypoint-patroni.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint-patroni.sh
+COPY infisical-secrets.sh /etc/patroni/
+RUN chmod +x /usr/local/bin/entrypoint-patroni.sh /etc/patroni/infisical-secrets.sh
 
 # Expose PostgreSQL and Patroni REST API ports
 EXPOSE 5432 8008

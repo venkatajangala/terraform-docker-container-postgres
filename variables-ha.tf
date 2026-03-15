@@ -109,3 +109,72 @@ variable "pgbouncer_reserve_pool_size" {
   default     = 5
   description = "Number of connections to reserve for emergencies"
 }
+
+# ============================================================================
+# Infisical Secrets Management
+# ============================================================================
+
+variable "infisical_enabled" {
+  type        = bool
+  default     = true
+  description = "Enable Infisical secrets management integration"
+}
+
+variable "infisical_port" {
+  type        = number
+  default     = 8020
+  description = "Infisical API server port"
+}
+
+variable "infisical_db_port" {
+  type        = number
+  default     = 5437
+  description = "Internal PostgreSQL database port for Infisical"
+}
+
+variable "infisical_project_id" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Infisical project ID for secret access (leave empty for new project creation)"
+}
+
+variable "infisical_environment" {
+  type        = string
+  default     = "dev"
+  description = "Infisical environment: dev, staging, or production"
+  validation {
+    condition     = contains(["dev", "staging", "production"], var.infisical_environment)
+    error_message = "infisical_environment must be 'dev', 'staging', or 'production'."
+  }
+}
+
+variable "infisical_api_key" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Infisical API key for service-to-service authentication (use TF_VAR_infisical_api_key env var)"
+}
+
+variable "infisical_master_key" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Infisical master encryption key (auto-generated if empty)"
+}
+
+variable "generate_new_passwords" {
+  type        = bool
+  default     = true
+  description = "Generate new secure passwords on first deployment"
+}
+
+variable "password_length" {
+  type        = number
+  default     = 32
+  description = "Length of generated passwords"
+  validation {
+    condition     = var.password_length >= 16 && var.password_length <= 128
+    error_message = "password_length must be between 16 and 128 characters."
+  }
+}
