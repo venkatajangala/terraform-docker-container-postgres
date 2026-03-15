@@ -108,7 +108,7 @@ resource "docker_container" "pg_node_1" {
   image   = docker_image.postgres_patroni.image_id
   restart = "unless-stopped"
 
-  env = [
+  env = concat([
     "POSTGRES_USER=${var.postgres_user}",
     "POSTGRES_PASSWORD=${var.postgres_password}",
     "POSTGRES_DB=${var.postgres_db}",
@@ -128,7 +128,12 @@ resource "docker_container" "pg_node_1" {
     "PATRONI_DCS_TYPE=etcd3",
     "PATRONI_ETCD__HOSTS=etcd:2379",
     "PATRONI_ETCD__PROTOCOL=http"
-  ]
+  ], var.infisical_enabled ? [
+    "INFISICAL_API_KEY=${var.infisical_api_key}",
+    "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
+    "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
+    "INFISICAL_HOST=http://infisical:${var.infisical_port}"
+  ] : [])
 
   ports {
     internal = 5432
@@ -181,7 +186,7 @@ resource "docker_container" "pg_node_2" {
   image   = docker_image.postgres_patroni.image_id
   restart = "unless-stopped"
 
-  env = [
+  env = concat([
     "POSTGRES_USER=${var.postgres_user}",
     "POSTGRES_PASSWORD=${var.postgres_password}",
     "POSTGRES_DB=${var.postgres_db}",
@@ -201,7 +206,12 @@ resource "docker_container" "pg_node_2" {
     "PATRONI_DCS_TYPE=etcd3",
     "PATRONI_ETCD__HOSTS=etcd:2379",
     "PATRONI_ETCD__PROTOCOL=http"
-  ]
+  ], var.infisical_enabled ? [
+    "INFISICAL_API_KEY=${var.infisical_api_key}",
+    "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
+    "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
+    "INFISICAL_HOST=http://infisical:${var.infisical_port}"
+  ] : [])
 
   ports {
     internal = 5432
@@ -249,12 +259,13 @@ resource "docker_container" "pg_node_2" {
 # PostgreSQL Node 3 (Replica with Patroni)
 # ============================================================================
 
+
 resource "docker_container" "pg_node_3" {
   name    = "pg-node-3"
   image   = docker_image.postgres_patroni.image_id
   restart = "unless-stopped"
 
-  env = [
+  env = concat([
     "POSTGRES_USER=${var.postgres_user}",
     "POSTGRES_PASSWORD=${var.postgres_password}",
     "POSTGRES_DB=${var.postgres_db}",
@@ -274,7 +285,12 @@ resource "docker_container" "pg_node_3" {
     "PATRONI_DCS_TYPE=etcd3",
     "PATRONI_ETCD__HOSTS=etcd:2379",
     "PATRONI_ETCD__PROTOCOL=http"
-  ]
+  ], var.infisical_enabled ? [
+    "INFISICAL_API_KEY=${var.infisical_api_key}",
+    "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
+    "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
+    "INFISICAL_HOST=http://infisical:${var.infisical_port}"
+  ] : [])
 
   ports {
     internal = 5432
@@ -376,6 +392,22 @@ resource "docker_container" "pgbouncer_1" {
   image   = docker_image.pgbouncer[0].image_id
   restart = "unless-stopped"
 
+  env = concat([
+    "PGBOUNCER_CONFIG_DIR=/etc/pgbouncer",
+    "PGBOUNCER_LOG_DIR=/var/log/pgbouncer",
+    "PGBOUNCER_PORT=6432"
+  ], var.infisical_enabled ? [
+    "INFISICAL_API_KEY=${var.infisical_api_key}",
+    "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
+    "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
+    "INFISICAL_HOST=http://infisical:${var.infisical_port}",
+    "DB_ADMIN_USER=${var.postgres_user}",
+    "DB_REPLICATION_USER=replicator"
+  ] : [
+    "DB_ADMIN_PASSWORD=${var.postgres_password}",
+    "DB_REPLICATION_PASSWORD=${var.replication_password}"
+  ])
+
   ports {
     internal = 6432
     external = var.pgbouncer_external_port_base
@@ -384,13 +416,6 @@ resource "docker_container" "pgbouncer_1" {
   mounts {
     target    = "/etc/pgbouncer/pgbouncer.ini"
     source    = abspath("${path.module}/pgbouncer/pgbouncer.ini")
-    type      = "bind"
-    read_only = true
-  }
-
-  mounts {
-    target    = "/etc/pgbouncer/userlist.txt"
-    source    = abspath("${path.module}/pgbouncer/userlist.txt")
     type      = "bind"
     read_only = true
   }
@@ -413,11 +438,28 @@ resource "docker_container" "pgbouncer_1" {
 }
 
 # PgBouncer Instance 2
+
 resource "docker_container" "pgbouncer_2" {
   count   = var.pgbouncer_enabled && var.pgbouncer_replicas >= 2 ? 1 : 0
   name    = "pgbouncer-2"
   image   = docker_image.pgbouncer[0].image_id
   restart = "unless-stopped"
+
+  env = concat([
+    "PGBOUNCER_CONFIG_DIR=/etc/pgbouncer",
+    "PGBOUNCER_LOG_DIR=/var/log/pgbouncer",
+    "PGBOUNCER_PORT=6432"
+  ], var.infisical_enabled ? [
+    "INFISICAL_API_KEY=${var.infisical_api_key}",
+    "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
+    "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
+    "INFISICAL_HOST=http://infisical:${var.infisical_port}",
+    "DB_ADMIN_USER=${var.postgres_user}",
+    "DB_REPLICATION_USER=replicator"
+  ] : [
+    "DB_ADMIN_PASSWORD=${var.postgres_password}",
+    "DB_REPLICATION_PASSWORD=${var.replication_password}"
+  ])
 
   ports {
     internal = 6432
@@ -427,13 +469,6 @@ resource "docker_container" "pgbouncer_2" {
   mounts {
     target    = "/etc/pgbouncer/pgbouncer.ini"
     source    = abspath("${path.module}/pgbouncer/pgbouncer.ini")
-    type      = "bind"
-    read_only = true
-  }
-
-  mounts {
-    target    = "/etc/pgbouncer/userlist.txt"
-    source    = abspath("${path.module}/pgbouncer/userlist.txt")
     type      = "bind"
     read_only = true
   }
@@ -455,12 +490,28 @@ resource "docker_container" "pgbouncer_2" {
   ]
 }
 
-# PgBouncer Instance 3 (Optional)
+# PgBouncer Instance 3
 resource "docker_container" "pgbouncer_3" {
   count   = var.pgbouncer_enabled && var.pgbouncer_replicas >= 3 ? 1 : 0
   name    = "pgbouncer-3"
   image   = docker_image.pgbouncer[0].image_id
   restart = "unless-stopped"
+
+  env = concat([
+    "PGBOUNCER_CONFIG_DIR=/etc/pgbouncer",
+    "PGBOUNCER_LOG_DIR=/var/log/pgbouncer",
+    "PGBOUNCER_PORT=6432"
+  ], var.infisical_enabled ? [
+    "INFISICAL_API_KEY=${var.infisical_api_key}",
+    "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
+    "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
+    "INFISICAL_HOST=http://infisical:${var.infisical_port}",
+    "DB_ADMIN_USER=${var.postgres_user}",
+    "DB_REPLICATION_USER=replicator"
+  ] : [
+    "DB_ADMIN_PASSWORD=${var.postgres_password}",
+    "DB_REPLICATION_PASSWORD=${var.replication_password}"
+  ])
 
   ports {
     internal = 6432
@@ -470,13 +521,6 @@ resource "docker_container" "pgbouncer_3" {
   mounts {
     target    = "/etc/pgbouncer/pgbouncer.ini"
     source    = abspath("${path.module}/pgbouncer/pgbouncer.ini")
-    type      = "bind"
-    read_only = true
-  }
-
-  mounts {
-    target    = "/etc/pgbouncer/userlist.txt"
-    source    = abspath("${path.module}/pgbouncer/userlist.txt")
     type      = "bind"
     read_only = true
   }
