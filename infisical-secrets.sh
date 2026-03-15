@@ -110,7 +110,7 @@ verify_infisical_connection() {
   echo "Verifying Infisical connectivity..." >&2
   
   local response
-  response=$(curl -s -X GET "${INFISICAL_HOST}/api/v1/health" 2>/dev/null) || {
+  response=$(curl -s -X GET "${INFISICAL_HOST}/api/status" 2>/dev/null) || {
     echo "ERROR: Cannot connect to Infisical at ${INFISICAL_HOST}" >&2
     return 1
   }

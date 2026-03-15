@@ -14,8 +14,9 @@ PGBOUNCER_PORT="${PGBOUNCER_PORT:-6432}"
 
 # Create necessary directories
 mkdir -p "$PGBOUNCER_CONFIG_DIR" "$PGBOUNCER_LOG_DIR"
-chown -R postgres:postgres "$PGBOUNCER_CONFIG_DIR" "$PGBOUNCER_LOG_DIR"
-chmod 750 "$PGBOUNCER_CONFIG_DIR"
+chown -R postgres:postgres "$PGBOUNCER_LOG_DIR" || true
+chown postgres:postgres "$PGBOUNCER_CONFIG_DIR" 2>/dev/null || true
+chmod 750 "$PGBOUNCER_CONFIG_DIR" 2>/dev/null || true
 
 # ============================================================================
 # SECTION 1: Infisical Secrets Integration

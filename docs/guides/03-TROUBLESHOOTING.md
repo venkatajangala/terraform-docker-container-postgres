@@ -25,10 +25,11 @@ psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1;"
 
 **Check 3: Are credentials correct?**
 ```bash
-# Check userlist.txt
-cat pgbouncer/userlist.txt
+# Passwords are auto-generated — check current password via Terraform output
+terraform output -json generated_passwords
 
-# Expected format: "pgadmin" "pgAdmin1"
+# Check userlist.txt reflects the current password
+cat pgbouncer/userlist.txt
 ```
 
 **Check 4: Network connectivity?**
@@ -392,6 +393,106 @@ postgres_port_base = 5500  # instead of 5432
 pgbouncer_external_port_base = 6500  # instead of 6432
 ```
 
+## Infisical & Secret Management Issues
+
+### PgBouncer Authentication Failed (Password Out of Sync)
+
+**Symptom**: `FATAL: password authentication failed for user "pgadmin"` when connecting through PgBouncer, but direct PostgreSQL connection also fails.
+
+**Cause**: Terraform regenerated a new random password and applied it to the container environment, but the PostgreSQL `pgadmin` user's password was not updated in the running cluster.
+
+**Solution:**
+```bash
+# Step 1: Get the current generated password
+terraform output -json generated_passwords
+
+# Step 2: Apply the updated password in PostgreSQL on the primary node
+# (find the current primary first)
+LEADER=$(curl -s http://localhost:8008/leader | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])")
+docker exec -it $LEADER psql -U postgres -d postgres -c \
+  "ALTER USER pgadmin PASSWORD 'password-from-output';"
+
+# Step 3: Restart PgBouncer to pick up the new userlist
+docker restart pgbouncer-1 pgbouncer-2
+
+# Step 4: Verify
+psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1;"
+```
+
+### Infisical Container Restart Loop (Missing Redis)
+
+**Symptom**: The `infisical` container keeps restarting; logs show Redis connection errors.
+
+**Cause**: Infisical requires Redis. The `infisical-redis` container (Redis 7 Alpine) must be running before Infisical starts.
+
+**Check:**
+```bash
+# Confirm infisical-redis is running
+docker ps | grep infisical-redis
+
+# If not running, check its logs
+docker logs infisical-redis
+
+# If the container doesn't exist at all, re-apply Terraform
+terraform apply -var-file="ha-test.tfvars"
+```
+
+**If infisical-redis is running but Infisical still restarts:**
+```bash
+# Verify Redis connectivity from the Infisical container
+docker exec infisical sh -c 'redis-cli -h infisical-redis ping'
+# Expected: PONG
+
+# Check Infisical logs for the exact error
+docker logs infisical | tail -50
+```
+
+### Node Shows "start failed" (Timeline Divergence)
+
+**Symptom**: `patronictl list` shows a node with state `start failed`, and the node logs mention timeline divergence.
+
+**Cause**: The replica's WAL timeline diverged from the current primary (typically after a failover). The node cannot replay WAL and refuses to start.
+
+**Solution**: Run `patronictl reinit` from the current primary:
+```bash
+# Step 1: Identify the current primary and the failed node
+curl -s http://localhost:8008/cluster | python3 -m json.tool | grep -E '"name"|"state"|"role"'
+
+# Step 2: Run reinit targeting the failed node from the primary
+docker exec <primary-node> patronictl -c /etc/patroni/patroni.yml \
+  reinit pg-ha-cluster <failed-node> --force
+
+# Example:
+docker exec pg-node-1 patronictl -c /etc/patroni/patroni.yml \
+  reinit pg-ha-cluster pg-node-2 --force
+
+# Step 3: Verify the node recovers
+sleep 30
+curl -s http://localhost:8008/cluster | python3 -m json.tool
+```
+
+### pg_stat_replication Returns Empty
+
+**Symptom**: `SELECT * FROM pg_stat_replication;` returns no rows even though replicas appear healthy.
+
+**Cause**: The query is being run as the `pgadmin` user, which may lack sufficient privileges. `pg_stat_replication` requires the `pg_monitor` role or superuser access to see rows.
+
+**Solution:**
+```bash
+# Option 1: Run as the postgres superuser
+docker exec pg-node-1 psql -U postgres -d postgres \
+  -c "SELECT application_name, state, sync_state, write_lag FROM pg_stat_replication;"
+
+# Option 2: Verify pgadmin has pg_monitor (should already be granted)
+docker exec pg-node-1 psql -U postgres -d postgres \
+  -c "\du pgadmin"
+# Look for pg_monitor in the role list
+
+# If pg_monitor is missing, grant it:
+docker exec pg-node-1 psql -U postgres -d postgres \
+  -c "GRANT pg_monitor TO pgadmin;"
+```
+
 ## Getting Help
 
 ### Collect Diagnostic Information
@@ -428,7 +529,7 @@ tar czf diagnostics.tar.gz diagnostics/
 |-------|---------|-----|
 | `FATAL: remaining connection slots reserved` | Pool exhausted | Increase pool size |
 | `could not connect to server` | Network/port issue | Check ports exposed |
-| `password authentication failed` | Wrong credentials | Check userlist.txt |
+| `password authentication failed` | Wrong credentials or password out of sync | Check `terraform output -json generated_passwords`; run `ALTER USER pgadmin PASSWORD '...'` on primary |
 | `replication slot does not exist` | Replication broken | Restart replicas |
 | `no leader elected` | etcd or Patroni issue | Restart cluster |
 | `permission denied` | Directory permissions | Check chmod/ownership |

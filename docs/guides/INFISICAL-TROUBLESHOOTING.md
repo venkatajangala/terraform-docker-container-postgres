@@ -1,5 +1,7 @@
 # Infisical Integration - Troubleshooting Guide
 
+> **Note**: Infisical runs from the official `infisical/infisical:latest` image. There is no custom `Dockerfile.infisical` — do not look for or try to rebuild a local image.
+
 ## Common Issues and Solutions
 
 ### 1. Infisical Container Won't Start
@@ -13,6 +15,8 @@ docker ps | grep infisical
 **Root Causes & Solutions**:
 
 #### A. Database Backend Not Ready
+
+> **Environment variable note**: Infisical uses `DB_CONNECTION_URI` for its database connection string. Older documentation or examples may refer to `DATABASE_URL` — this is not the correct variable name for the official Infisical image. Use `DB_CONNECTION_URI`.
 
 ```bash
 # Check if infisical-postgres is running
@@ -59,6 +63,40 @@ docker image prune
 # Solution: Increase available disk space
 ```
 
+### 1b. Infisical Restart Loop Due to Missing Redis
+
+Infisical requires a Redis instance. The stack includes `infisical-redis` (Redis 7 Alpine). If Redis is unavailable, Infisical will crash-loop immediately.
+
+**Check:**
+```bash
+# Verify infisical-redis is running
+docker ps | grep infisical-redis
+
+# Confirm Redis is reachable from Infisical
+docker exec infisical sh -c 'redis-cli -h infisical-redis ping'
+# Expected: PONG
+```
+
+**If infisical-redis is missing:**
+```bash
+# Re-apply the full stack — infisical-redis is managed by Terraform
+terraform apply -var-file="ha-test.tfvars"
+
+# Bring up infisical-redis first, then infisical
+terraform apply -var-file="ha-test.tfvars" -target=docker_container.infisical_redis
+sleep 10
+terraform apply -var-file="ha-test.tfvars" -target=docker_container.infisical
+```
+
+**If infisical-redis exists but Infisical still fails:**
+```bash
+# Check Redis logs for errors
+docker logs infisical-redis
+
+# Confirm both containers share pg-ha-network
+docker network inspect pg-ha-network | grep -E '"Name"|infisical'
+```
+
 ### 2. PostgreSQL Nodes Can't Connect to Infisical
 
 **Symptoms**:
@@ -75,7 +113,7 @@ docker logs pg-node-1 | grep -i "infisical\|connection refused"
 
 ```bash
 # Test from PostgreSQL container
-docker exec pg-node-1 bash -c 'curl -v http://infisical:8020/api/v1/health'
+docker exec pg-node-1 bash -c 'curl -v http://infisical:8020/api/status'
 
 # If connection refused:
 # 1. Verify Infisical is running on pg-ha-network
@@ -93,7 +131,7 @@ docker network connect pg-ha-network pg-node-1
 
 ```bash
 # Check Infisical health
-curl http://localhost:8020/api/v1/health
+curl http://localhost:8020/api/status
 
 # If timeout or error, check container logs
 docker logs infisical | tail -50
@@ -314,7 +352,7 @@ echo "Password rotation completed successfully!"
 **Symptoms**:
 ```bash
 # Infisical starts but API returns 500 errors
-curl http://localhost:8020/api/v1/health
+curl http://localhost:8020/api/status
 # HTTP 500 Internal Server Error
 
 # Or Infisical keeps crashing
@@ -379,7 +417,7 @@ docker logs infisical | grep -i "memory\|gc\|garbage"
 
 ```bash
 # 1. Monitor Infisical performance
-curl -s http://localhost:8020/api/v1/health | jq '.'
+curl -s http://localhost:8020/api/status | jq '.'
 
 # 2. Check network latency between containers
 docker exec pg-node-1 ping -c 5 infisical
@@ -407,7 +445,7 @@ echo "=== System Health Check ==="
 
 # Infisical
 echo "1. Infisical API:"
-curl -s http://localhost:8020/api/v1/health || echo "FAILED"
+curl -s http://localhost:8020/api/status || echo "FAILED"
 
 # PostgreSQL
 echo -e "\n2. PostgreSQL Primary:"
@@ -427,7 +465,7 @@ docker volume ls | grep -E "infisical|postgres|pgbouncer"
 
 # Network
 echo -e "\n6. Network Connectivity:"
-docker exec pg-node-1 curl -s http://infisical:8020/api/v1/health || echo "FAILED"
+docker exec pg-node-1 curl -s http://infisical:8020/api/status || echo "FAILED"
 ```
 
 ### Collect Debugging Information
