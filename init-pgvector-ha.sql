@@ -28,5 +28,14 @@ BEGIN
     END IF;
 END $$;
 
+-- Grant pgadmin monitoring and schema privileges (idempotent)
+DO $$
+BEGIN
+    IF pg_is_in_recovery() = false THEN
+        GRANT pg_monitor TO pgadmin;
+        GRANT CREATE ON SCHEMA public TO pgadmin;
+    END IF;
+END $$;
+
 -- Verify pgvector is installed
 SELECT 'pgvector extension initialized successfully on PostgreSQL node' as status;

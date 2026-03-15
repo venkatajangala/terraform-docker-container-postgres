@@ -60,6 +60,9 @@ postgresql:
     replication:
       username: replicator
       password: ${REPLICATION_PASSWORD}
+    rewind:
+      username: pgadmin
+      password: ${POSTGRES_PASSWORD}
   
   parameters:
     max_connections: 200

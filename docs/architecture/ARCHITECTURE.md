@@ -42,6 +42,21 @@ Complete technical architecture of the PostgreSQL HA cluster with PgBouncer.
         │  Port: 9090                     │     Database browser
         │  Schema viewer, query execution │     Migration support
         └─────────────────────────────────┘
+
+        ┌───────────────────────────────────────────────────────┐
+        │  Secrets Management Layer                              │
+        │                                                        │
+        │  ┌──────────────────────┐   ┌──────────────────────┐  │
+        │  │ Infisical Server     │   │ infisical-redis       │  │
+        │  │ (infisical/infisical)│──▶│ Redis 7 Alpine        │  │
+        │  │ External: 8080→8020  │   │ Internal: 6379        │  │
+        │  └──────────┬───────────┘   └──────────────────────┘  │
+        │             │                                          │
+        │  ┌──────────▼───────────┐                             │
+        │  │ infisical-postgres   │                             │
+        │  │ Port: 5437           │                             │
+        │  └──────────────────────┘                             │
+        └───────────────────────────────────────────────────────┘
 ```
 
 ## Component Details

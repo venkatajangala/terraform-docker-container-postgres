@@ -16,7 +16,7 @@ if [ -n "$INFISICAL_DB_HOST" ]; then
   echo "Waiting for database backend at $INFISICAL_DB_HOST:$INFISICAL_DB_PORT..."
   max_attempts=30
   attempt=0
-  until psql -h "$INFISICAL_DB_HOST" -p "$INFISICAL_DB_PORT" -U "$INFISICAL_DB_USER" -d "$INFISICAL_DB_NAME" -c "SELECT 1" > /dev/null 2>&1; do
+  until PGPASSWORD="$INFISICAL_DB_PASSWORD" psql -h "$INFISICAL_DB_HOST" -p "$INFISICAL_DB_PORT" -U "$INFISICAL_DB_USER" -d "$INFISICAL_DB_NAME" -c "SELECT 1" > /dev/null 2>&1; do
     attempt=$((attempt + 1))
     if [ $attempt -gt $max_attempts ]; then
       echo "Database backend failed to start after $max_attempts attempts"

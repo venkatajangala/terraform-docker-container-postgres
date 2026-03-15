@@ -19,6 +19,12 @@ resource "docker_network" "pg_ha_network" {
   driver = "bridge"
 }
 
+# Use random passwords if not explicitly provided via variables
+locals {
+  postgres_password    = var.postgres_password != "" ? var.postgres_password : random_password.db_admin_password.result
+  replication_password = var.replication_password != "" ? var.replication_password : random_password.db_replication_password.result
+}
+
 # ============================================================================
 # ETCD - Distributed Configuration Store (DCS)
 # ============================================================================
@@ -110,9 +116,9 @@ resource "docker_container" "pg_node_1" {
 
   env = concat([
     "POSTGRES_USER=${var.postgres_user}",
-    "POSTGRES_PASSWORD=${var.postgres_password}",
+    "POSTGRES_PASSWORD=${local.postgres_password}",
     "POSTGRES_DB=${var.postgres_db}",
-    "REPLICATION_PASSWORD=${var.replication_password}",
+    "REPLICATION_PASSWORD=${local.replication_password}",
     "PATRONI_SCOPE=pg-ha-cluster",
     "PATRONI_NAME=pg-node-1",
     "PATRONI_RESTAPI__LISTEN=0.0.0.0:8008",
@@ -188,9 +194,9 @@ resource "docker_container" "pg_node_2" {
 
   env = concat([
     "POSTGRES_USER=${var.postgres_user}",
-    "POSTGRES_PASSWORD=${var.postgres_password}",
+    "POSTGRES_PASSWORD=${local.postgres_password}",
     "POSTGRES_DB=${var.postgres_db}",
-    "REPLICATION_PASSWORD=${var.replication_password}",
+    "REPLICATION_PASSWORD=${local.replication_password}",
     "PATRONI_SCOPE=pg-ha-cluster",
     "PATRONI_NAME=pg-node-2",
     "PATRONI_RESTAPI__LISTEN=0.0.0.0:8008",
@@ -267,9 +273,9 @@ resource "docker_container" "pg_node_3" {
 
   env = concat([
     "POSTGRES_USER=${var.postgres_user}",
-    "POSTGRES_PASSWORD=${var.postgres_password}",
+    "POSTGRES_PASSWORD=${local.postgres_password}",
     "POSTGRES_DB=${var.postgres_db}",
-    "REPLICATION_PASSWORD=${var.replication_password}",
+    "REPLICATION_PASSWORD=${local.replication_password}",
     "PATRONI_SCOPE=pg-ha-cluster",
     "PATRONI_NAME=pg-node-3",
     "PATRONI_RESTAPI__LISTEN=0.0.0.0:8008",
@@ -353,7 +359,7 @@ resource "docker_container" "dbhub" {
   }
 
   env = [
-    "BYTEBASE_POSTGRES_URL=postgres://${var.postgres_user}:${var.postgres_password}@pg-node-1:5432/${var.postgres_db}?sslmode=disable"
+    "BYTEBASE_POSTGRES_URL=postgres://${var.postgres_user}:${local.postgres_password}@pg-node-1:5432/${var.postgres_db}?sslmode=disable"
   ]
 
   networks_advanced {
@@ -395,18 +401,17 @@ resource "docker_container" "pgbouncer_1" {
   env = concat([
     "PGBOUNCER_CONFIG_DIR=/etc/pgbouncer",
     "PGBOUNCER_LOG_DIR=/var/log/pgbouncer",
-    "PGBOUNCER_PORT=6432"
+    "PGBOUNCER_PORT=6432",
+    "DB_ADMIN_USER=${var.postgres_user}",
+    "DB_ADMIN_PASSWORD=${local.postgres_password}",
+    "DB_REPLICATION_USER=replicator",
+    "DB_REPLICATION_PASSWORD=${local.replication_password}"
   ], var.infisical_enabled ? [
     "INFISICAL_API_KEY=${var.infisical_api_key}",
     "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
     "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
-    "INFISICAL_HOST=http://infisical:${var.infisical_port}",
-    "DB_ADMIN_USER=${var.postgres_user}",
-    "DB_REPLICATION_USER=replicator"
-  ] : [
-    "DB_ADMIN_PASSWORD=${var.postgres_password}",
-    "DB_REPLICATION_PASSWORD=${var.replication_password}"
-  ])
+    "INFISICAL_HOST=http://infisical:${var.infisical_port}"
+  ] : [])
 
   ports {
     internal = 6432
@@ -448,18 +453,17 @@ resource "docker_container" "pgbouncer_2" {
   env = concat([
     "PGBOUNCER_CONFIG_DIR=/etc/pgbouncer",
     "PGBOUNCER_LOG_DIR=/var/log/pgbouncer",
-    "PGBOUNCER_PORT=6432"
+    "PGBOUNCER_PORT=6432",
+    "DB_ADMIN_USER=${var.postgres_user}",
+    "DB_ADMIN_PASSWORD=${local.postgres_password}",
+    "DB_REPLICATION_USER=replicator",
+    "DB_REPLICATION_PASSWORD=${local.replication_password}"
   ], var.infisical_enabled ? [
     "INFISICAL_API_KEY=${var.infisical_api_key}",
     "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
     "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
-    "INFISICAL_HOST=http://infisical:${var.infisical_port}",
-    "DB_ADMIN_USER=${var.postgres_user}",
-    "DB_REPLICATION_USER=replicator"
-  ] : [
-    "DB_ADMIN_PASSWORD=${var.postgres_password}",
-    "DB_REPLICATION_PASSWORD=${var.replication_password}"
-  ])
+    "INFISICAL_HOST=http://infisical:${var.infisical_port}"
+  ] : [])
 
   ports {
     internal = 6432
@@ -500,18 +504,17 @@ resource "docker_container" "pgbouncer_3" {
   env = concat([
     "PGBOUNCER_CONFIG_DIR=/etc/pgbouncer",
     "PGBOUNCER_LOG_DIR=/var/log/pgbouncer",
-    "PGBOUNCER_PORT=6432"
+    "PGBOUNCER_PORT=6432",
+    "DB_ADMIN_USER=${var.postgres_user}",
+    "DB_ADMIN_PASSWORD=${local.postgres_password}",
+    "DB_REPLICATION_USER=replicator",
+    "DB_REPLICATION_PASSWORD=${local.replication_password}"
   ], var.infisical_enabled ? [
     "INFISICAL_API_KEY=${var.infisical_api_key}",
     "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
     "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
-    "INFISICAL_HOST=http://infisical:${var.infisical_port}",
-    "DB_ADMIN_USER=${var.postgres_user}",
-    "DB_REPLICATION_USER=replicator"
-  ] : [
-    "DB_ADMIN_PASSWORD=${var.postgres_password}",
-    "DB_REPLICATION_PASSWORD=${var.replication_password}"
-  ])
+    "INFISICAL_HOST=http://infisical:${var.infisical_port}"
+  ] : [])
 
   ports {
     internal = 6432
