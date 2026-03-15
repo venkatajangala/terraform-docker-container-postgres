@@ -19,3 +19,15 @@ pgbouncer_max_client_conn    = 1000
 pgbouncer_default_pool_size  = 25
 pgbouncer_min_pool_size      = 5
 pgbouncer_reserve_pool_size  = 5
+
+// Infisical Secrets Management Configuration
+// NOTE: Use environment variables for sensitive values:
+//   export TF_VAR_infisical_api_key="your-api-key-here"
+//   export TF_VAR_infisical_master_key="your-master-key-here" (optional)
+infisical_enabled      = true
+infisical_port         = 8020
+infisical_db_port      = 5437
+infisical_environment  = "dev"
+generate_new_passwords = true
+password_length        = 32
+
