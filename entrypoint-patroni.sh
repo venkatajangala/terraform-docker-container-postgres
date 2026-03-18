@@ -1,65 +1,85 @@
 #!/bin/bash
-set -e
+set -euo pipefail
+
+# Trap errors and signals
+trap 'echo "ERROR: Patroni entrypoint failed"; exit 1' ERR
+trap 'echo "Interrupted"; exit 130' INT TERM
 
 # Add PostgreSQL binaries to PATH
 export PATH="/usr/lib/postgresql/18/bin:$PATH"
+
+echo "=== Starting Patroni PostgreSQL Node ==="
 
 # ============================================================================
 # SECTION 1: Infisical Secrets Integration
 # ============================================================================
 
-echo "=== Checking Infisical integration ==="
+echo "Checking Infisical integration..."
 
-# Source Infisical utilities if available
 if [ -f /etc/patroni/infisical-secrets.sh ]; then
   source /etc/patroni/infisical-secrets.sh
   
-  # Verify Infisical is available
-  if [ -n "$INFISICAL_API_KEY" ] && [ -n "$INFISICAL_PROJECT_ID" ]; then
+  if [ -n "${INFISICAL_API_KEY:-}" ] && [ -n "${INFISICAL_PROJECT_ID:-}" ]; then
     echo "Infisical integration enabled"
     
-    # Attempt to fetch secrets from Infisical
     if verify_infisical_connection 2>/dev/null; then
       echo "Fetching secrets from Infisical..."
       
-      # Fetch PostgreSQL admin password
-      if ! POSTGRES_PASSWORD=$(fetch_secret_from_infisical "db-admin-password" 2>/dev/null); then
-        echo "WARNING: Could not fetch db-admin-password from Infisical, using environment value"
-      else
-        echo "Successfully fetched db-admin-password from Infisical"
+      if POSTGRES_PASSWORD=$(fetch_secret_from_infisical "db-admin-password" 2>/dev/null); then
+        echo "✓ Fetched db-admin-password from Infisical"
         export POSTGRES_PASSWORD
+      else
+        echo "⚠ Using environment db-admin-password"
       fi
       
-      # Fetch replication password
-      if ! REPLICATION_PASSWORD=$(fetch_secret_from_infisical "db-replication-password" 2>/dev/null); then
-        echo "WARNING: Could not fetch db-replication-password from Infisical, using environment value"
-      else
-        echo "Successfully fetched db-replication-password from Infisical"
+      if REPLICATION_PASSWORD=$(fetch_secret_from_infisical "db-replication-password" 2>/dev/null); then
+        echo "✓ Fetched db-replication-password from Infisical"
         export REPLICATION_PASSWORD
+      else
+        echo "⚠ Using environment db-replication-password"
       fi
     else
-      echo "WARNING: Infisical not reachable, using passwords from environment variables"
+      echo "⚠ Infisical not reachable, using environment variables"
     fi
   else
-    echo "Infisical integration not configured (missing API key or project ID)"
+    echo "ℹ Infisical not configured"
   fi
-else
-  echo "Infisical utilities not available, skipping secret fetching"
+fi
+
+# Validate required passwords
+if [ -z "${POSTGRES_PASSWORD:-}" ]; then
+  echo "ERROR: POSTGRES_PASSWORD not set" >&2
+  exit 1
+fi
+
+if [ -z "${REPLICATION_PASSWORD:-}" ]; then
+  echo "ERROR: REPLICATION_PASSWORD not set" >&2
+  exit 1
 fi
 
 # ============================================================================
-# SECTION 2: Original Patroni Setup
+# SECTION 2: Wait for etcd DCS
 # ============================================================================
 
-# Wait for etcd to be ready
-echo "Waiting for etcd to be ready..."
+echo "Waiting for etcd service..."
+max_attempts=30
+attempt=0
 until curl -s http://etcd:2379/version > /dev/null 2>&1; do
-  echo "etcd is unavailable - sleeping"
+  attempt=$((attempt + 1))
+  if [ $attempt -gt $max_attempts ]; then
+    echo "ERROR: etcd failed to start after $max_attempts attempts" >&2
+    exit 1
+  fi
+  echo "  Attempt $attempt/$max_attempts..."
   sleep 2
 done
-echo "etcd is ready"
+echo "✓ etcd is ready"
 
-# Set up PostgreSQL directories with proper permissions
+# ============================================================================
+# SECTION 3: PostgreSQL Directory Setup
+# ============================================================================
+
+echo "Setting up PostgreSQL directories..."
 mkdir -p /var/lib/postgresql/18/main
 mkdir -p /var/run/postgresql
 chown -R postgres:postgres /var/lib/postgresql /var/run/postgresql
@@ -68,82 +88,42 @@ chmod 755 /var/lib/postgresql
 chmod 755 /var/lib/postgresql/18
 chmod 777 /var/run/postgresql 2>/dev/null || true
 
-# Create an initdb wrapper that ensures pg_hba.conf is created with proper entries
-# Backup original initdb and replace with wrapper
+# ============================================================================
+# SECTION 4: Verify initdb Wrapper Exists (from Dockerfile)
+# ============================================================================
+
 if [ ! -f /usr/lib/postgresql/18/bin/initdb.real ]; then
-  mv /usr/lib/postgresql/18/bin/initdb /usr/lib/postgresql/18/bin/initdb.real
-  
-  cat > /usr/lib/postgresql/18/bin/initdb <<'INITDB_WRAPPER'
-#!/bin/bash
-# Wrapper script: call real initdb, then fix pg_hba.conf
-
-# Find the -D parameter to get the data directory
-D_PATH=""
-ARGS=()
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    -D)
-      D_PATH="$2"
-      ARGS+=("$1" "$2")
-      shift 2
-      ;;
-    --pgdata=*)
-      D_PATH="${1#*=}"
-      ARGS+=("$1")
-      shift
-      ;;
-    *)
-      ARGS+=("$1")
-      shift
-      ;;
-  esac
-done
-
-# Call real initdb
-/usr/lib/postgresql/18/bin/initdb.real "${ARGS[@]}"
-
-# Now fix pg_hba.conf
-if [ -n "$D_PATH" ] && [ -d "$D_PATH" ]; then
-  echo "initdb wrapper: Creating pg_hba.conf entries..."
-  cat > "$D_PATH/pg_hba.conf" <<'EOF'
-# PostgreSQL Client Authentication Configuration
-# Auto-generated by initdb wrapper - Patroni managed
-local   all             all                                     trust
-host    all             all             127.0.0.1/32            trust
-host    all             all             ::1/128                 trust
-host    replication     all             172.20.0.0/16           scram-sha-256
-host    all             all             172.20.0.0/16           scram-sha-256
-local   replication     all                                     trust
-host    replication     all             127.0.0.1/32            trust
-host    replication     all             ::1/128                 trust
-EOF
-  chmod 600 "$D_PATH/pg_hba.conf"
-fi
-INITDB_WRAPPER
-  
-  chmod +x /usr/lib/postgresql/18/bin/initdb
+  echo "ERROR: initdb wrapper must be set up in Dockerfile" >&2
+  exit 1
 fi
 
-# Initialize pgbackrest if not already done
+# ============================================================================
+# SECTION 5: Initialize pgBackRest
+# ============================================================================
+
 if [ ! -f /etc/pgbackrest/.initialized ]; then
-  echo "Initializing pgbackrest..."
+  echo "Initializing pgBackRest..."
   mkdir -p /etc/pgbackrest
   mkdir -p /var/lib/pgbackrest
-  chown -R postgres:postgres /var/lib/pgbackrest
   mkdir -p /var/log/pgbackrest
-  chown -R postgres:postgres /var/log/pgbackrest
+  chown -R postgres:postgres /var/lib/pgbackrest /var/log/pgbackrest
   touch /etc/pgbackrest/.initialized
+  echo "✓ pgBackRest initialized"
 fi
 
-# Final permission fix before starting Patroni - ensure all pg directories are correct
-echo "Enforcing PostgreSQL directory permissions..."
-mkdir -p /var/lib/postgresql/18/main
-mkdir -p /var/run/postgresql
-chown -R postgres:postgres /var/lib/postgresql /var/run/postgresql
-chmod -R 700 /var/lib/postgresql/18/main
+# ============================================================================
+# SECTION 6: Final Permission Check
+# ============================================================================
+
+echo "Enforcing PostgreSQL permissions..."
+chmod 700 /var/lib/postgresql/18/main
 chmod 755 /var/lib/postgresql
 chmod 755 /var/lib/postgresql/18
 chmod 777 /var/run/postgresql 2>/dev/null || true
 
-# Execute Patroni as postgres user with PATH preserved
+# ============================================================================
+# SECTION 7: Execute Patroni
+# ============================================================================
+
+echo "Starting Patroni..."
 exec sudo -u postgres env PATH="$PATH" "$@"

@@ -8,19 +8,9 @@ output "etcd_endpoint" {
   description = "etcd endpoint for cluster configuration store"
 }
 
-output "pg_node_1_name" {
-  value       = docker_container.pg_node_1.name
-  description = "PostgreSQL Node 1 container name"
-}
-
-output "pg_node_2_name" {
-  value       = docker_container.pg_node_2.name
-  description = "PostgreSQL Node 2 container name"
-}
-
-output "pg_node_3_name" {
-  value       = docker_container.pg_node_3.name
-  description = "PostgreSQL Node 3 container name"
+output "pg_nodes" {
+  value       = { for k, v in docker_container.pg_node : k => v.name }
+  description = "PostgreSQL node container names"
 }
 
 output "pg_primary_endpoint" {
@@ -59,19 +49,13 @@ output "pg_internal_replica_2" {
   description = "PostgreSQL replica 2 endpoint (internal - from containers)"
 }
 
-output "patroni_api_node_1" {
-  value       = "http://localhost:8008"
-  description = "Patroni REST API endpoint for Node 1"
-}
-
-output "patroni_api_node_2" {
-  value       = "http://localhost:8009"
-  description = "Patroni REST API endpoint for Node 2"
-}
-
-output "patroni_api_node_3" {
-  value       = "http://localhost:8010"
-  description = "Patroni REST API endpoint for Node 3"
+output "patroni_api_endpoints" {
+  value = {
+    "node-1" = "http://localhost:8008"
+    "node-2" = "http://localhost:8009"
+    "node-3" = "http://localhost:8010"
+  }
+  description = "Patroni REST API endpoints for all nodes"
 }
 
 output "dbhub_url" {
@@ -130,18 +114,14 @@ output "pgbouncer_primary_endpoint" {
 
 output "pgbouncer_external_ports" {
   value = var.pgbouncer_enabled ? {
-    pgbouncer_1 = var.pgbouncer_replicas >= 1 ? var.pgbouncer_external_port_base : null
-    pgbouncer_2 = var.pgbouncer_replicas >= 2 ? var.pgbouncer_external_port_base + 1 : null
-    pgbouncer_3 = var.pgbouncer_replicas >= 3 ? var.pgbouncer_external_port_base + 2 : null
-  } : null
+    for k, v in docker_container.pgbouncer : "pgbouncer-${k}" => v.ports[0].external
+  } : {}
   description = "External ports for individual PgBouncer instances"
 }
 
 output "pgbouncer_internal_endpoints" {
   value = var.pgbouncer_enabled ? [
-    "pgbouncer-1:6432",
-    "pgbouncer-2:6432",
-    "pgbouncer-3:6432"
+    for k in keys(docker_container.pgbouncer) : "pgbouncer-${k}:6432"
   ] : []
   description = "Internal container network endpoints for PgBouncer instances"
 }

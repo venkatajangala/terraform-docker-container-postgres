@@ -178,3 +178,40 @@ variable "password_length" {
     error_message = "password_length must be between 16 and 128 characters."
   }
 }
+
+# ============================================================================
+# Resource Limits & Performance Tuning
+# ============================================================================
+
+variable "pg_node_memory_mb" {
+  type        = number
+  default     = 4096
+  description = "Memory limit per PostgreSQL node (MB)"
+
+  validation {
+    condition     = var.pg_node_memory_mb >= 512 && var.pg_node_memory_mb <= 65536
+    error_message = "Memory must be between 512MB and 64GB."
+  }
+}
+
+variable "pgbouncer_memory_mb" {
+  type        = number
+  default     = 256
+  description = "Memory limit per PgBouncer instance (MB)"
+
+  validation {
+    condition     = var.pgbouncer_memory_mb >= 64 && var.pgbouncer_memory_mb <= 2048
+    error_message = "Memory must be between 64MB and 2GB."
+  }
+}
+
+variable "etcd_memory_mb" {
+  type        = number
+  default     = 512
+  description = "Memory limit for etcd (MB)"
+
+  validation {
+    condition     = var.etcd_memory_mb >= 256 && var.etcd_memory_mb <= 4096
+    error_message = "Memory must be between 256MB and 4GB."
+  }
+}

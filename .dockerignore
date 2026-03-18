@@ -1,0 +1,44 @@
+# .dockerignore - Exclude unnecessary files from Docker build context
+
+# Version Control
+.git
+.gitignore
+.gitattributes
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfvars
+.terraformrc
+
+# Python
+.venv
+*.pyc
+__pycache__
+*.egg-info
+.pytest_cache
+
+# IDE / Editor
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+.claude
+
+# Documentation (optional, keep if needed)
+*.md
+docs/
+_archives/
+
+# Testing
+.git
+.github
+
+# Temporary files
+tmp/
+temp/
+*.log

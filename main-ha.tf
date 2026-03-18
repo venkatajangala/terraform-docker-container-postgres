@@ -10,19 +10,102 @@ terraform {
 provider "docker" {}
 
 # ============================================================================
+# Consolidated Configuration via Locals
+# ============================================================================
+
+locals {
+  # PostgreSQL node definitions
+  pg_nodes = {
+    "1" = {
+      external_port    = 5432
+      patroni_api_port = 8008
+    }
+    "2" = {
+      external_port    = 5433
+      patroni_api_port = 8009
+    }
+    "3" = {
+      external_port    = 5434
+      patroni_api_port = 8010
+    }
+  }
+
+  # PgBouncer replicas (simplified)
+  pgbouncer_replicas = toset([
+    for i in range(1, var.pgbouncer_replicas + 1) : tostring(i)
+  ])
+
+  # Common environment variables
+  common_pg_env = [
+    "POSTGRES_USER=${var.postgres_user}",
+    "POSTGRES_PASSWORD=${local.postgres_password}",
+    "POSTGRES_DB=${var.postgres_db}",
+    "REPLICATION_PASSWORD=${local.replication_password}",
+  ]
+
+  # Patroni core settings (same for all nodes)
+  patroni_base_env = [
+    "PATRONI_SCOPE=pg-ha-cluster",
+    "PATRONI_POSTGRESQL__DATA_DIR=/var/lib/postgresql/18/main",
+    "PATRONI_POSTGRESQL__PARAMETERS__SHARED_PRELOAD_LIBRARIES=vector,pg_stat_statements",
+    "PATRONI_POSTGRESQL__PGCTLCLUSTER=18-main",
+    "PATRONI_POSTGRESQL__INITDB__ENCODING=UTF8",
+    "PATRONI_POSTGRESQL__INITDB__LOCALE=en_US.UTF-8",
+    "PATRONI_POSTGRESQL__REMOVE_DATA_DIRECTORY_ON_DIVERGENCE=true",
+    "PATRONI_DCS_TYPE=etcd3",
+    "PATRONI_ETCD__HOSTS=etcd:2379",
+    "PATRONI_ETCD__PROTOCOL=http"
+  ]
+
+  # Infisical credentials (if enabled)
+  infisical_env = var.infisical_enabled ? [
+    "INFISICAL_API_KEY=${var.infisical_api_key}",
+    "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
+    "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
+    "INFISICAL_HOST=http://infisical:${var.infisical_port}"
+  ] : []
+
+  # Use random passwords if not explicitly provided
+  postgres_password    = var.postgres_password != "" ? var.postgres_password : random_password.db_admin_password.result
+  replication_password = var.replication_password != "" ? var.replication_password : random_password.db_replication_password.result
+}
+
+# ============================================================================
+# Random Password Generation
+# ============================================================================
+
+resource "random_password" "db_admin_password" {
+  length  = var.password_length
+  special = true
+}
+
+resource "random_password" "db_replication_password" {
+  length  = var.password_length
+  special = true
+}
+
+resource "random_password" "pgbouncer_admin_password" {
+  length  = var.password_length
+  special = true
+}
+
+resource "random_password" "infisical_api_key" {
+  length  = 32
+  special = true
+}
+
+resource "random_password" "infisical_db_password" {
+  length  = var.password_length
+  special = true
+}
+
+# ============================================================================
 # HA PostgreSQL Cluster with Patroni + etcd
 # ============================================================================
 
-# Create a custom bridge network for HA cluster communication
 resource "docker_network" "pg_ha_network" {
   name   = "pg-ha-network"
   driver = "bridge"
-}
-
-# Use random passwords if not explicitly provided via variables
-locals {
-  postgres_password    = var.postgres_password != "" ? var.postgres_password : random_password.db_admin_password.result
-  replication_password = var.replication_password != "" ? var.replication_password : random_password.db_replication_password.result
 }
 
 # ============================================================================
@@ -71,6 +154,10 @@ resource "docker_container" "etcd" {
   networks_advanced {
     name = docker_network.pg_ha_network.name
   }
+
+  memory       = var.etcd_memory_mb
+  stop_signal  = "SIGTERM"
+  stop_timeout = 30
 }
 
 # ============================================================================
@@ -93,77 +180,64 @@ resource "docker_volume" "pgbackrest_repo" {
   name = "pgbackrest-repo"
 }
 
-resource "docker_volume" "pg_node_1_data" {
-  name = "pg-node-1-data"
-}
-
-resource "docker_volume" "pg_node_2_data" {
-  name = "pg-node-2-data"
-}
-
-resource "docker_volume" "pg_node_3_data" {
-  name = "pg-node-3-data"
+resource "docker_volume" "pg_node_data" {
+  for_each = local.pg_nodes
+  name     = "pg-node-${each.key}-data"
 }
 
 # ============================================================================
-# PostgreSQL Node 1 (Primary/Replica with Patroni)
+# PostgreSQL Nodes (Consolidated via for_each)
 # ============================================================================
 
-resource "docker_container" "pg_node_1" {
-  name    = "pg-node-1"
+resource "docker_container" "pg_node" {
+  for_each = local.pg_nodes
+
+  name    = "pg-node-${each.key}"
   image   = docker_image.postgres_patroni.image_id
   restart = "unless-stopped"
 
-  env = concat([
-    "POSTGRES_USER=${var.postgres_user}",
-    "POSTGRES_PASSWORD=${local.postgres_password}",
-    "POSTGRES_DB=${var.postgres_db}",
-    "REPLICATION_PASSWORD=${local.replication_password}",
-    "PATRONI_SCOPE=pg-ha-cluster",
-    "PATRONI_NAME=pg-node-1",
-    "PATRONI_RESTAPI__LISTEN=0.0.0.0:8008",
-    "PATRONI_RESTAPI__CONNECT_ADDRESS=pg-node-1:8008",
-    "PATRONI_POSTGRESQL__LISTEN=0.0.0.0:5432",
-    "PATRONI_POSTGRESQL__CONNECT_ADDRESS=pg-node-1:5432",
-    "PATRONI_POSTGRESQL__DATA_DIR=/var/lib/postgresql/18/main",
-    "PATRONI_POSTGRESQL__PARAMETERS__SHARED_PRELOAD_LIBRARIES=vector,pg_stat_statements",
-    "PATRONI_POSTGRESQL__PGCTLCLUSTER=18-main",
-    "PATRONI_POSTGRESQL__INITDB__ENCODING=UTF8",
-    "PATRONI_POSTGRESQL__INITDB__LOCALE=en_US.UTF-8",
-    "PATRONI_POSTGRESQL__REMOVE_DATA_DIRECTORY_ON_DIVERGENCE=true",
-    "PATRONI_DCS_TYPE=etcd3",
-    "PATRONI_ETCD__HOSTS=etcd:2379",
-    "PATRONI_ETCD__PROTOCOL=http"
-  ], var.infisical_enabled ? [
-    "INFISICAL_API_KEY=${var.infisical_api_key}",
-    "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
-    "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
-    "INFISICAL_HOST=http://infisical:${var.infisical_port}"
-  ] : [])
+  # Consolidated environment variables
+  env = concat(
+    local.common_pg_env,
+    local.patroni_base_env,
+    [
+      "PATRONI_NAME=pg-node-${each.key}",
+      "PATRONI_RESTAPI__LISTEN=0.0.0.0:8008",
+      "PATRONI_RESTAPI__CONNECT_ADDRESS=pg-node-${each.key}:8008",
+      "PATRONI_POSTGRESQL__LISTEN=0.0.0.0:5432",
+      "PATRONI_POSTGRESQL__CONNECT_ADDRESS=pg-node-${each.key}:5432",
+    ],
+    local.infisical_env
+  )
 
+  # External PostgreSQL port
   ports {
     internal = 5432
-    external = 5432
+    external = each.value.external_port
   }
 
+  # Patroni REST API port
   ports {
     internal = 8008
-    external = 8008
+    external = each.value.patroni_api_port
   }
 
+  # Volume for data
   mounts {
     target = "/var/lib/postgresql"
-    source = docker_volume.pg_node_1_data.name
+    source = docker_volume.pg_node_data[each.key].name
     type   = "volume"
   }
 
+  # Patroni configuration
   mounts {
     target    = "/etc/patroni/patroni.yml"
-    source    = abspath("${path.module}/patroni/patroni-node-1.yml")
+    source    = abspath("${path.module}/patroni/patroni-node-${each.key}.yml")
     type      = "bind"
     read_only = true
   }
 
+  # pgBackRest repository and logs
   mounts {
     target = "/var/lib/pgbackrest"
     source = docker_volume.pgbackrest_repo.name
@@ -180,164 +254,31 @@ resource "docker_container" "pg_node_1" {
     name = docker_network.pg_ha_network.name
   }
 
+  # Resource limits
+  memory      = var.pg_node_memory_mb
+  memory_swap = var.pg_node_memory_mb
+  cpu_shares  = 1024
+
+  # Logging configuration
+  log_driver = "json-file"
+  log_opts = {
+    "max-size" = "10m"
+    "max-file" = "3"
+  }
+
+  # Health check
+  healthcheck {
+    test     = ["CMD", "pg_isready", "-U", "postgres", "-d", var.postgres_db]
+    interval = "30s"
+    timeout  = "10s"
+    retries  = 3
+  }
+
+  stop_signal  = "SIGTERM"
+  stop_timeout = 30
+
+  # Dependency on etcd
   depends_on = [docker_container.etcd]
-}
-
-# ============================================================================
-# PostgreSQL Node 2 (Replica with Patroni)
-# ============================================================================
-
-resource "docker_container" "pg_node_2" {
-  name    = "pg-node-2"
-  image   = docker_image.postgres_patroni.image_id
-  restart = "unless-stopped"
-
-  env = concat([
-    "POSTGRES_USER=${var.postgres_user}",
-    "POSTGRES_PASSWORD=${local.postgres_password}",
-    "POSTGRES_DB=${var.postgres_db}",
-    "REPLICATION_PASSWORD=${local.replication_password}",
-    "PATRONI_SCOPE=pg-ha-cluster",
-    "PATRONI_NAME=pg-node-2",
-    "PATRONI_RESTAPI__LISTEN=0.0.0.0:8008",
-    "PATRONI_RESTAPI__CONNECT_ADDRESS=pg-node-2:8008",
-    "PATRONI_POSTGRESQL__LISTEN=0.0.0.0:5432",
-    "PATRONI_POSTGRESQL__CONNECT_ADDRESS=pg-node-2:5432",
-    "PATRONI_POSTGRESQL__DATA_DIR=/var/lib/postgresql/18/main",
-    "PATRONI_POSTGRESQL__PARAMETERS__SHARED_PRELOAD_LIBRARIES=vector,pg_stat_statements",
-    "PATRONI_POSTGRESQL__PGCTLCLUSTER=18-main",
-    "PATRONI_POSTGRESQL__INITDB__ENCODING=UTF8",
-    "PATRONI_POSTGRESQL__INITDB__LOCALE=en_US.UTF-8",
-    "PATRONI_POSTGRESQL__REMOVE_DATA_DIRECTORY_ON_DIVERGENCE=true",
-    "PATRONI_DCS_TYPE=etcd3",
-    "PATRONI_ETCD__HOSTS=etcd:2379",
-    "PATRONI_ETCD__PROTOCOL=http"
-  ], var.infisical_enabled ? [
-    "INFISICAL_API_KEY=${var.infisical_api_key}",
-    "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
-    "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
-    "INFISICAL_HOST=http://infisical:${var.infisical_port}"
-  ] : [])
-
-  ports {
-    internal = 5432
-    external = 5433
-  }
-
-  ports {
-    internal = 8008
-    external = 8009
-  }
-
-  mounts {
-    target = "/var/lib/postgresql"
-    source = docker_volume.pg_node_2_data.name
-    type   = "volume"
-  }
-
-  mounts {
-    target    = "/etc/patroni/patroni.yml"
-    source    = abspath("${path.module}/patroni/patroni-node-2.yml")
-    type      = "bind"
-    read_only = true
-  }
-
-  mounts {
-    target = "/var/lib/pgbackrest"
-    source = docker_volume.pgbackrest_repo.name
-    type   = "volume"
-  }
-
-  mounts {
-    target = "/var/log/pgbackrest"
-    source = docker_volume.pgbackrest_repo.name
-    type   = "volume"
-  }
-
-  networks_advanced {
-    name = docker_network.pg_ha_network.name
-  }
-
-  depends_on = [docker_container.etcd, docker_container.pg_node_1]
-}
-
-# ============================================================================
-# PostgreSQL Node 3 (Replica with Patroni)
-# ============================================================================
-
-
-resource "docker_container" "pg_node_3" {
-  name    = "pg-node-3"
-  image   = docker_image.postgres_patroni.image_id
-  restart = "unless-stopped"
-
-  env = concat([
-    "POSTGRES_USER=${var.postgres_user}",
-    "POSTGRES_PASSWORD=${local.postgres_password}",
-    "POSTGRES_DB=${var.postgres_db}",
-    "REPLICATION_PASSWORD=${local.replication_password}",
-    "PATRONI_SCOPE=pg-ha-cluster",
-    "PATRONI_NAME=pg-node-3",
-    "PATRONI_RESTAPI__LISTEN=0.0.0.0:8008",
-    "PATRONI_RESTAPI__CONNECT_ADDRESS=pg-node-3:8008",
-    "PATRONI_POSTGRESQL__LISTEN=0.0.0.0:5432",
-    "PATRONI_POSTGRESQL__CONNECT_ADDRESS=pg-node-3:5432",
-    "PATRONI_POSTGRESQL__DATA_DIR=/var/lib/postgresql/18/main",
-    "PATRONI_POSTGRESQL__PARAMETERS__SHARED_PRELOAD_LIBRARIES=vector,pg_stat_statements",
-    "PATRONI_POSTGRESQL__PGCTLCLUSTER=18-main",
-    "PATRONI_POSTGRESQL__INITDB__ENCODING=UTF8",
-    "PATRONI_POSTGRESQL__INITDB__LOCALE=en_US.UTF-8",
-    "PATRONI_POSTGRESQL__REMOVE_DATA_DIRECTORY_ON_DIVERGENCE=true",
-    "PATRONI_DCS_TYPE=etcd3",
-    "PATRONI_ETCD__HOSTS=etcd:2379",
-    "PATRONI_ETCD__PROTOCOL=http"
-  ], var.infisical_enabled ? [
-    "INFISICAL_API_KEY=${var.infisical_api_key}",
-    "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
-    "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
-    "INFISICAL_HOST=http://infisical:${var.infisical_port}"
-  ] : [])
-
-  ports {
-    internal = 5432
-    external = 5434
-  }
-
-  ports {
-    internal = 8008
-    external = 8010
-  }
-
-  mounts {
-    target = "/var/lib/postgresql"
-    source = docker_volume.pg_node_3_data.name
-    type   = "volume"
-  }
-
-  mounts {
-    target    = "/etc/patroni/patroni.yml"
-    source    = abspath("${path.module}/patroni/patroni-node-3.yml")
-    type      = "bind"
-    read_only = true
-  }
-
-  mounts {
-    target = "/var/lib/pgbackrest"
-    source = docker_volume.pgbackrest_repo.name
-    type   = "volume"
-  }
-
-  mounts {
-    target = "/var/log/pgbackrest"
-    source = docker_volume.pgbackrest_repo.name
-    type   = "volume"
-  }
-
-  networks_advanced {
-    name = docker_network.pg_ha_network.name
-  }
-
-  depends_on = [docker_container.etcd, docker_container.pg_node_1]
 }
 
 # ============================================================================
@@ -366,15 +307,11 @@ resource "docker_container" "dbhub" {
     name = docker_network.pg_ha_network.name
   }
 
-  depends_on = [
-    docker_container.pg_node_1,
-    docker_container.pg_node_2,
-    docker_container.pg_node_3
-  ]
+  depends_on = [docker_container.pg_node]
 }
 
 # ============================================================================
-# PgBouncer - Connection Pooling Layer for HA Configuration
+# PgBouncer - Connection Pooling Layer (Consolidated via for_each)
 # ============================================================================
 
 resource "docker_image" "pgbouncer" {
@@ -391,10 +328,10 @@ resource "docker_volume" "pgbouncer_logs" {
   name  = "pgbouncer-logs"
 }
 
-# PgBouncer Instance 1
-resource "docker_container" "pgbouncer_1" {
-  count   = var.pgbouncer_enabled && var.pgbouncer_replicas >= 1 ? 1 : 0
-  name    = "pgbouncer-1"
+resource "docker_container" "pgbouncer" {
+  for_each = var.pgbouncer_enabled ? local.pgbouncer_replicas : toset([])
+
+  name    = "pgbouncer-${each.key}"
   image   = docker_image.pgbouncer[0].image_id
   restart = "unless-stopped"
 
@@ -406,16 +343,11 @@ resource "docker_container" "pgbouncer_1" {
     "DB_ADMIN_PASSWORD=${local.postgres_password}",
     "DB_REPLICATION_USER=replicator",
     "DB_REPLICATION_PASSWORD=${local.replication_password}"
-  ], var.infisical_enabled ? [
-    "INFISICAL_API_KEY=${var.infisical_api_key}",
-    "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
-    "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
-    "INFISICAL_HOST=http://infisical:${var.infisical_port}"
-  ] : [])
+  ], local.infisical_env)
 
   ports {
     internal = 6432
-    external = var.pgbouncer_external_port_base
+    external = var.pgbouncer_external_port_base + (tonumber(each.key) - 1)
   }
 
   mounts {
@@ -435,112 +367,27 @@ resource "docker_container" "pgbouncer_1" {
     name = docker_network.pg_ha_network.name
   }
 
-  depends_on = [
-    docker_container.pg_node_1,
-    docker_container.pg_node_2,
-    docker_container.pg_node_3
-  ]
-}
+  # Resource limits
+  memory      = var.pgbouncer_memory_mb
+  memory_swap = var.pgbouncer_memory_mb
 
-# PgBouncer Instance 2
-
-resource "docker_container" "pgbouncer_2" {
-  count   = var.pgbouncer_enabled && var.pgbouncer_replicas >= 2 ? 1 : 0
-  name    = "pgbouncer-2"
-  image   = docker_image.pgbouncer[0].image_id
-  restart = "unless-stopped"
-
-  env = concat([
-    "PGBOUNCER_CONFIG_DIR=/etc/pgbouncer",
-    "PGBOUNCER_LOG_DIR=/var/log/pgbouncer",
-    "PGBOUNCER_PORT=6432",
-    "DB_ADMIN_USER=${var.postgres_user}",
-    "DB_ADMIN_PASSWORD=${local.postgres_password}",
-    "DB_REPLICATION_USER=replicator",
-    "DB_REPLICATION_PASSWORD=${local.replication_password}"
-  ], var.infisical_enabled ? [
-    "INFISICAL_API_KEY=${var.infisical_api_key}",
-    "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
-    "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
-    "INFISICAL_HOST=http://infisical:${var.infisical_port}"
-  ] : [])
-
-  ports {
-    internal = 6432
-    external = var.pgbouncer_external_port_base + 1
+  # Logging configuration
+  log_driver = "json-file"
+  log_opts = {
+    "max-size" = "10m"
+    "max-file" = "3"
   }
 
-  mounts {
-    target    = "/etc/pgbouncer/pgbouncer.ini"
-    source    = abspath("${path.module}/pgbouncer/pgbouncer.ini")
-    type      = "bind"
-    read_only = true
+  # Health check
+  healthcheck {
+    test     = ["CMD", "pg_isready", "-h", "localhost", "-p", "6432"]
+    interval = "10s"
+    timeout  = "5s"
+    retries  = 3
   }
 
-  mounts {
-    target = "/var/log/pgbouncer"
-    source = docker_volume.pgbouncer_logs[0].name
-    type   = "volume"
-  }
+  stop_signal  = "SIGTERM"
+  stop_timeout = 30
 
-  networks_advanced {
-    name = docker_network.pg_ha_network.name
-  }
-
-  depends_on = [
-    docker_container.pg_node_1,
-    docker_container.pg_node_2,
-    docker_container.pg_node_3
-  ]
-}
-
-# PgBouncer Instance 3
-resource "docker_container" "pgbouncer_3" {
-  count   = var.pgbouncer_enabled && var.pgbouncer_replicas >= 3 ? 1 : 0
-  name    = "pgbouncer-3"
-  image   = docker_image.pgbouncer[0].image_id
-  restart = "unless-stopped"
-
-  env = concat([
-    "PGBOUNCER_CONFIG_DIR=/etc/pgbouncer",
-    "PGBOUNCER_LOG_DIR=/var/log/pgbouncer",
-    "PGBOUNCER_PORT=6432",
-    "DB_ADMIN_USER=${var.postgres_user}",
-    "DB_ADMIN_PASSWORD=${local.postgres_password}",
-    "DB_REPLICATION_USER=replicator",
-    "DB_REPLICATION_PASSWORD=${local.replication_password}"
-  ], var.infisical_enabled ? [
-    "INFISICAL_API_KEY=${var.infisical_api_key}",
-    "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
-    "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
-    "INFISICAL_HOST=http://infisical:${var.infisical_port}"
-  ] : [])
-
-  ports {
-    internal = 6432
-    external = var.pgbouncer_external_port_base + 2
-  }
-
-  mounts {
-    target    = "/etc/pgbouncer/pgbouncer.ini"
-    source    = abspath("${path.module}/pgbouncer/pgbouncer.ini")
-    type      = "bind"
-    read_only = true
-  }
-
-  mounts {
-    target = "/var/log/pgbouncer"
-    source = docker_volume.pgbouncer_logs[0].name
-    type   = "volume"
-  }
-
-  networks_advanced {
-    name = docker_network.pg_ha_network.name
-  }
-
-  depends_on = [
-    docker_container.pg_node_1,
-    docker_container.pg_node_2,
-    docker_container.pg_node_3
-  ]
+  depends_on = [docker_container.pg_node]
 }
