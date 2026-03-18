@@ -1,9 +1,13 @@
+# ============================================================================
+# PostgreSQL with Patroni, pgVector, and pgBackrest
+# Optimized for HA cluster with etcd DCS
+# ============================================================================
 FROM pgvector/pgvector:0.8.1-pg18-trixie
 
-# Install Patroni and dependencies
-RUN apt-get update -o Acquire::http::timeout=60 && apt-get install -y --no-install-recommends \
+# Install all dependencies in single layer
+RUN apt-get update -o Acquire::http::timeout=60 && \
+    apt-get install -y --no-install-recommends \
     python3-pip \
-    python3-dev \
     python3-psycopg2 \
     postgresql-contrib \
     pgbackrest \
@@ -21,78 +25,42 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     pyyaml \
     tenacity
 
-# Create pgbackrest directories
-RUN mkdir -p /var/lib/pgbackrest /var/log/pgbackrest && \
-    chown -R postgres:postgres /var/lib/pgbackrest /var/log/pgbackrest
-
-# Pre-create PostgreSQL directories with proper ownership and permissions
-RUN mkdir -p /var/lib/postgresql/18/main && \
-    mkdir -p /var/run/postgresql && \
-    chown -R postgres:postgres /var/lib/postgresql /var/run/postgresql && \
-    chmod 755 /var/lib/postgresql && \
-    chmod 755 /var/lib/postgresql/18 && \
+# ============================================================================
+# Consolidated Directory Setup (Single RUN command for efficiency)
+# ============================================================================
+RUN mkdir -p /var/lib/pgbackrest /var/log/pgbackrest \
+             /var/lib/postgresql/18/main /var/run/postgresql \
+             /etc/patroni && \
+    chown -R postgres:postgres /var/lib/pgbackrest /var/log/pgbackrest \
+                               /var/lib/postgresql /var/run/postgresql && \
     chmod 700 /var/lib/postgresql/18/main && \
+    chmod 755 /var/lib/postgresql /var/lib/postgresql/18 && \
     chmod 755 /var/run/postgresql
 
-# Create initdb wrapper to ensure pg_hba.conf gets proper entries
+# ============================================================================
+# Create initdb wrapper
+# ============================================================================
 RUN mv /usr/lib/postgresql/18/bin/initdb /usr/lib/postgresql/18/bin/initdb.real
-RUN cat > /usr/lib/postgresql/18/bin/initdb <<'INITDB_EOF'
-#!/bin/bash
-# Patroni initdb wrapper - ensures pg_hba.conf is created with proper entries
 
-# Extract -D parameter
-D_PATH=""
-ARGS=()
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    -D)
-      D_PATH="$2"
-      ARGS+=("$1" "$2")
-      shift 2
-      ;;
-    --pgdata=*)
-      D_PATH="${1#*=}"
-      ARGS+=("$1")
-      shift
-      ;;
-    *)
-      ARGS+=("$1")
-      shift
-      ;;
-  esac
-done
-
-# Call real initdb
-/usr/lib/postgresql/18/bin/initdb.real "${ARGS[@]}"
-
-# Fix pg_hba.conf after initdb
-if [ -n "$D_PATH" ] && [ -d "$D_PATH" ]; then
-  echo "initdb wrapper: Creating pg_hba.conf..."
-  cat > "$D_PATH/pg_hba.conf" <<'EOF'
-# PostgreSQL Client Authentication Configuration
-local   all             all                                     trust
-host    all             all             127.0.0.1/32            trust
-host    all             all             ::1/128                 trust
-host    replication     all             172.20.0.0/16           scram-sha-256
-host    all             all             172.20.0.0/16           scram-sha-256
-local   replication     all                                     trust
-host    replication     all             127.0.0.1/32            trust
-host    replication     all             ::1/128                 trust
-EOF
-  chmod 600 "$D_PATH/pg_hba.conf"
-  
-  # Ensure data directory has correct permissions
-  chmod 700 "$D_PATH"
-fi
-INITDB_EOF
+COPY initdb-wrapper.sh /usr/lib/postgresql/18/bin/initdb
 RUN chmod +x /usr/lib/postgresql/18/bin/initdb
 
-# Copy entrypoint script and Infisical utilities
+# ============================================================================
+# Copy Scripts and Set Permissions (Consolidated)
+# ============================================================================
 COPY entrypoint-patroni.sh /usr/local/bin/
 COPY infisical-secrets.sh /etc/patroni/
 RUN chmod +x /usr/local/bin/entrypoint-patroni.sh /etc/patroni/infisical-secrets.sh
 
-# Expose PostgreSQL and Patroni REST API ports
+# ============================================================================
+# Health Check
+# ============================================================================
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD pg_isready -U postgres -d postgres || exit 1
+
+# ============================================================================
+# Expose Ports
+# ============================================================================
 EXPOSE 5432 8008
 
 ENTRYPOINT ["/usr/local/bin/entrypoint-patroni.sh"]
