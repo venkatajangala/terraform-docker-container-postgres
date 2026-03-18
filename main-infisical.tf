@@ -1,33 +1,7 @@
-
 # ============================================================================
 # Infisical Secrets Management Infrastructure
+# NOTE: random_password resources are defined in main-ha.tf
 # ============================================================================
-
-# Generate secure random passwords for initial setup
-resource "random_password" "db_admin_password" {
-  length  = var.password_length
-  special = true
-}
-
-resource "random_password" "db_replication_password" {
-  length  = var.password_length
-  special = true
-}
-
-resource "random_password" "pgbouncer_admin_password" {
-  length  = var.password_length
-  special = true
-}
-
-resource "random_password" "infisical_api_key" {
-  length  = 32
-  special = true
-}
-
-resource "random_password" "infisical_db_password" {
-  length  = var.password_length
-  special = true
-}
 
 # ============================================================================
 # Redis Cache (required by Infisical server)
@@ -168,7 +142,6 @@ resource "docker_container" "infisical" {
 # Initialize Secrets in Infisical
 # ============================================================================
 
-# This local provisioner initializes Infisical with required secrets
 resource "null_resource" "infisical_init_secrets" {
   count = var.infisical_enabled && var.generate_new_passwords ? 1 : 0
 
@@ -184,7 +157,6 @@ resource "null_resource" "infisical_init_secrets" {
       echo "Waiting for Infisical to be ready..."
       sleep 5
       
-      # Try to connect to Infisical
       max_retries=30
       attempt=0
       until curl -s http://localhost:${var.infisical_port}/api/status > /dev/null 2>&1; do
@@ -198,16 +170,6 @@ resource "null_resource" "infisical_init_secrets" {
       done
       
       echo "Infisical is ready! Creating secrets..."
-      
-      # Set default API key if not provided
-      API_KEY="${var.infisical_api_key}"
-      if [ -z "$API_KEY" ]; then
-        API_KEY="${random_password.infisical_api_key.result}"
-        echo "Generated new Infisical API key: $API_KEY"
-      fi
-      
-      # Note: Secret creation would typically be done via Infisical UI or CLI
-      # This is a placeholder for documentation
       echo "Secrets should be created in Infisical via:"
       echo "1. Navigate to: http://localhost:${var.infisical_port}"
       echo "2. Create project and environment"
@@ -244,9 +206,9 @@ output "generated_passwords" {
   description = "Generated passwords for initial setup (store securely in Infisical)"
   sensitive   = true
   value = var.generate_new_passwords ? {
-    db_admin_password         = random_password.db_admin_password.result
-    db_replication_password   = random_password.db_replication_password.result
-    pgbouncer_admin_password  = random_password.pgbouncer_admin_password.result
-    infisical_api_key         = random_password.infisical_api_key.result
+    db_admin_password        = random_password.db_admin_password.result
+    db_replication_password  = random_password.db_replication_password.result
+    pgbouncer_admin_password = random_password.pgbouncer_admin_password.result
+    infisical_api_key        = random_password.infisical_api_key.result
   } : {}
 }

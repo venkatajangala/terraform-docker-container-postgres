@@ -1,8 +1,8 @@
 FROM node:20-bookworm
 
-# Install required dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    postgresql-client \
+# Install ONLY required dependencies in single layer
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     curl \
     wget \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN npm install -g @infisical/cli && \
     npm cache clean --force
 
-# Create directories for Infisical
+# Create directories for Infisical (consolidated)
 RUN mkdir -p /var/lib/infisical /etc/infisical /var/log/infisical && \
     chown -R node:node /var/lib/infisical /etc/infisical /var/log/infisical
 

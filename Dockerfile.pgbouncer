@@ -1,35 +1,40 @@
-FROM debian:bookworm-slim
+FROM alpine:3.19
 
-# Add PostgreSQL apt repository for PostgreSQL 18 client tools
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    gnupg \
-    curl \
-    && sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list' \
-    && curl https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
+# Install all dependencies in single layer
+RUN apk add --no-cache \
+    postgresql-client \
     pgbouncer \
-    postgresql-client-18 \
     netcat-openbsd \
     jq \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    curl \
+    bash \
+    sudo
 
+# ============================================================================
 # Create pgbouncer user and directories
+# ============================================================================
 RUN mkdir -p /etc/pgbouncer /var/log/pgbouncer && \
+    addgroup postgres 2>/dev/null || true && \
+    adduser -D postgres 2>/dev/null || true && \
     chown -R postgres:postgres /etc/pgbouncer /var/log/pgbouncer && \
     chmod 750 /etc/pgbouncer
 
-# Expose PgBouncer port
-EXPOSE 6432
-
-# Health check - verify connection
+# ============================================================================
+# Health Check
+# ============================================================================
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
     CMD pg_isready -h localhost -p 6432 || exit 1
 
-# Copy entrypoint script
+# ============================================================================
+# Copy Entrypoint Script
+# ============================================================================
 COPY entrypoint-pgbouncer.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/entrypoint-pgbouncer.sh
 
-# Start PgBouncer in foreground to Docker logs
+# ============================================================================
+# Expose PgBouncer Port
+# ============================================================================
+EXPOSE 6432
+
+# Start PgBouncer in foreground
 ENTRYPOINT ["/usr/local/bin/entrypoint-pgbouncer.sh"]

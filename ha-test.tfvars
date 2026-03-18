@@ -5,9 +5,9 @@
 //   export TF_VAR_replication_password="your-secure-password"
 
 postgres_user         = "pgadmin"
-postgres_password     = ""  // Leave empty to auto-generate, or set via env var
+postgres_password     = "" // Leave empty to auto-generate, or set via env var
 postgres_db           = "postgres"
-replication_password  = ""  // Leave empty to auto-generate, or set via env var
+replication_password  = "" // Leave empty to auto-generate, or set via env var
 dbhub_port            = 9090
 etcd_port             = 12379
 etcd_peer_port        = 12380
