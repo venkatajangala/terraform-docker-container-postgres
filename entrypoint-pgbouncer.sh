@@ -13,10 +13,12 @@ PGBOUNCER_LOG_DIR="${PGBOUNCER_LOG_DIR:-/var/log/pgbouncer}"
 PGBOUNCER_PORT="${PGBOUNCER_PORT:-6432}"
 
 # Create necessary directories
-mkdir -p "$PGBOUNCER_CONFIG_DIR" "$PGBOUNCER_LOG_DIR"
+mkdir -p "$PGBOUNCER_CONFIG_DIR" "$PGBOUNCER_LOG_DIR" /var/run/postgresql
 chown -R postgres:postgres "$PGBOUNCER_LOG_DIR" || true
+chown -R postgres:postgres /var/run/postgresql || true
 chown postgres:postgres "$PGBOUNCER_CONFIG_DIR" 2>/dev/null || true
 chmod 750 "$PGBOUNCER_CONFIG_DIR" 2>/dev/null || true
+chmod 777 /var/run/postgresql 2>/dev/null || true
 
 # ============================================================================
 # SECTION 1: Infisical Secrets Integration
@@ -156,7 +158,8 @@ stats_users = pgadmin
 ; Network and authentication
 listen_addr = 0.0.0.0
 listen_port = 6432
-unix_socket_dir = /var/run/postgresql
+; Disable unix socket for container environment
+unix_socket_dir = 
 unix_socket_mode = 0777
 unix_socket_group = postgres
 
