@@ -1,6 +1,15 @@
-# Example .gitignore entry
 .vscode/
 
 # Rendered Patroni configs contain plaintext passwords — never commit
 patroni/rendered/
 
+# Terraform state contains plaintext passwords and infra details — never commit
+terraform.tfstate
+terraform.tfstate.backup
+terraform.tfstate.*.backup
+.terraform/
+
+# Local tooling — not part of the stack
+litellm.log
+litellm_config.yaml
+start-claude.sh
