@@ -1,0 +1,46 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1-create-vector-extension
+      author: liquibase
+      description: Create pgvector extension for vector operations
+      comment: Required for similarity search with OpenAI embeddings
+      changes:
+        - sql:
+            sql: CREATE EXTENSION IF NOT EXISTS vector;
+      rollback:
+        - sql:
+            sql: DROP EXTENSION IF EXISTS vector CASCADE;
+
+  - changeSet:
+      id: 2-create-pg-stat-statements
+      author: liquibase
+      description: Create pg_stat_statements extension
+      comment: For query performance monitoring
+      changes:
+        - sql:
+            sql: CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+      rollback:
+        - sql:
+            sql: DROP EXTENSION IF EXISTS pg_stat_statements;
+
+  - changeSet:
+      id: 3-create-pgcrypto-extension
+      author: liquibase
+      description: Create pgcrypto extension for cryptographic functions
+      changes:
+        - sql:
+            sql: CREATE EXTENSION IF NOT EXISTS pgcrypto;
+      rollback:
+        - sql:
+            sql: DROP EXTENSION IF EXISTS pgcrypto;
+
+  - changeSet:
+      id: 4-create-uuid-ossp-extension
+      author: liquibase
+      description: Create uuid-ossp extension for UUID generation
+      changes:
+        - sql:
+            sql: CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+      rollback:
+        - sql:
+            sql: DROP EXTENSION IF EXISTS "uuid-ossp";

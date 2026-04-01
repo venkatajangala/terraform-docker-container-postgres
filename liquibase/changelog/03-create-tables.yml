@@ -1,0 +1,228 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1-create-audit-log-table
+      author: liquibase
+      description: Create audit log table for tracking all changes
+      changes:
+        - createTable:
+            tableName: audit_log
+            schemaName: audit
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: table_name
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: operation
+                  type: VARCHAR(10)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: old_data
+                  type: JSONB
+              - column:
+                  name: new_data
+                  type: JSONB
+              - column:
+                  name: changed_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+        - createIndex:
+            tableName: audit_log
+            schemaName: audit
+            indexName: idx_audit_log_table
+            columns:
+              - column:
+                  name: table_name
+        - createIndex:
+            tableName: audit_log
+            schemaName: audit
+            indexName: idx_audit_log_changed_at
+            columns:
+              - column:
+                  name: changed_at
+
+  - changeSet:
+      id: 2-create-users-table
+      author: liquibase
+      description: Create users table for application
+      changes:
+        - createTable:
+            tableName: users
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: username
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  name: email
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  name: password_hash
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+        - createIndex:
+            tableName: users
+            indexName: idx_users_email
+            columns:
+              - column:
+                  name: email
+        - sql:
+            sql: |
+              CREATE TRIGGER users_audit_trigger
+              AFTER INSERT OR UPDATE OR DELETE ON users
+              FOR EACH ROW EXECUTE FUNCTION audit.audit_trigger_func();
+
+  - changeSet:
+      id: 3-create-items-table-with-vectors
+      author: liquibase
+      description: Create items table with vector support for embeddings
+      changes:
+        - createTable:
+            tableName: items
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_items_user_id
+                    references: users(id)
+              - column:
+                  name: name
+                  type: VARCHAR(512)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: description
+                  type: TEXT
+              - column:
+                  name: embedding
+                  type: vector(1536)
+                  remarks: OpenAI embedding (1536 dimensions)
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+        - createIndex:
+            tableName: items
+            indexName: idx_items_user_id
+            columns:
+              - column:
+                  name: user_id
+        - sql:
+            sql: |
+              CREATE INDEX idx_items_embedding ON items
+              USING ivfflat (embedding vector_cosine_ops)
+              WITH (lists = 100);
+            comment: Vector index for fast similarity searches
+        - sql:
+            sql: |
+              CREATE TRIGGER items_audit_trigger
+              AFTER INSERT OR UPDATE OR DELETE ON items
+              FOR EACH ROW EXECUTE FUNCTION audit.audit_trigger_func();
+
+  - changeSet:
+      id: 4-create-sessions-table
+      author: liquibase
+      description: Create sessions table for tracking user sessions
+      changes:
+        - createTable:
+            tableName: sessions
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_sessions_user_id
+                    references: users(id)
+              - column:
+                  name: token
+                  type: VARCHAR(512)
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  name: expires_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+        - createIndex:
+            tableName: sessions
+            indexName: idx_sessions_user_id
+            columns:
+              - column:
+                  name: user_id
+        - createIndex:
+            tableName: sessions
+            indexName: idx_sessions_expires_at
+            columns:
+              - column:
+                  name: expires_at
+        - sql:
+            sql: |
+              CREATE TRIGGER sessions_audit_trigger
+              AFTER INSERT OR UPDATE OR DELETE ON sessions
+              FOR EACH ROW EXECUTE FUNCTION audit.audit_trigger_func();
