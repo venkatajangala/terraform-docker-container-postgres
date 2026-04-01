@@ -88,7 +88,7 @@ EOF
 
 ```bash
 # View etcd cluster status
-curl -s http://localhost:12379/v3/cluster/member/list | python3 -m json.tool
+curl -s http://localhost:2379/v3/cluster/member/list | python3 -m json.tool
 
 # Check Patroni consensus
 curl -s http://localhost:8008/cluster | python3 -m json.tool | grep -E '"dcs_last_seen"|"timeline"'

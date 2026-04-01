@@ -92,30 +92,34 @@ unset PGPASSWORD
 
 ## 📊 System Architecture
 
-```
-┌────────────────────────────────┐
-│     Applications/Clients        │
-└────────────┬────────────────────┘
-             │
-    ┌────────▼─────────┐
-    │   PgBouncer HA   │  ← Connection Pooling
-    │   6432, 6433     │
-    └────────┬─────────┘
-             │
-    ┌────────┼─────────┐
-    │        │         │
-┌───▼──┐ ┌──▼───┐ ┌──▼────┐
-│PG-1  │ │PG-2  │ │ PG-3  │  ← Patroni-managed
-│ (P) │◄─│(R)   │◄│(R)    │     Auto failover
-└──┬──┘ └──────┘ └───────┘
-   │
-   └─→ etcd ← Cluster state & leader election
+```mermaid
+graph TD
+    APP[Applications / Clients]
 
-┌────────────────────────────────┐
-│  Infisical (8020)               │  ← Secrets Management
-│  └─ infisical-redis (6379)      │     Redis required by Infisical
-│  └─ infisical-postgres (5437)   │     Infisical DB backend
-└────────────────────────────────┘
+    APP --> PGB1[PgBouncer-1\n:6432]
+    APP --> PGB2[PgBouncer-2\n:6433]
+
+    PGB1 & PGB2 --> PG1[pg-node-1\nPrimary :5432]
+    PGB1 & PGB2 --> PG2[pg-node-2\nReplica :5433]
+    PGB1 & PGB2 --> PG3[pg-node-3\nReplica :5434]
+
+    PG1 -->|WAL streaming| PG2
+    PG1 -->|WAL streaming| PG3
+
+    PG1 & PG2 & PG3 <-->|leader election| ETCD[etcd\n:2379]
+
+    LB[Liquibase migrations\none-shot container] -->|session pool\npostgres_liquibase| PGB1
+
+    INFISICAL[Infisical\n:8020] --- IREDIS[infisical-redis\n:6379]
+    INFISICAL --- IPG[infisical-postgres\n:5437]
+
+    style PG1 fill:#2e7d32,color:#fff
+    style PG2 fill:#1565c0,color:#fff
+    style PG3 fill:#1565c0,color:#fff
+    style PGB1 fill:#6a1b9a,color:#fff
+    style PGB2 fill:#6a1b9a,color:#fff
+    style ETCD fill:#e65100,color:#fff
+    style LB fill:#37474f,color:#fff
 ```
 
 ## 🔑 Key Features
