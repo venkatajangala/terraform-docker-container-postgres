@@ -53,16 +53,19 @@ postgresql:
   pgpass: /var/lib/postgresql/.pgpass
   listen: 0.0.0.0:5432
   connect_address: pg-node-1:5432
+  # Passwords are injected at runtime via PATRONI_SUPERUSER_PASSWORD,
+  # PATRONI_REPLICATION_PASSWORD, and PATRONI_REWIND_PASSWORD env vars (main-ha.tf).
+  # The empty password fields must be present so Patroni applies the env var overrides.
   authentication:
     superuser:
       username: postgres
-      password: ${POSTGRES_PASSWORD}
+      password: ""
     replication:
       username: replicator
-      password: ${REPLICATION_PASSWORD}
+      password: ""
     rewind:
       username: pgadmin
-      password: ${POSTGRES_PASSWORD}
+      password: ""
   
   parameters:
     max_connections: 200

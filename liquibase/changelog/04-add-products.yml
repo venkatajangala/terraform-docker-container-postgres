@@ -1,0 +1,76 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1-create-products-table
+      author: dev-team
+      description: Create products table for e-commerce catalog
+      changes:
+        - createTable:
+            tableName: products
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: name
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: description
+                  type: TEXT
+              - column:
+                  name: price
+                  type: DECIMAL(10,2)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: stock_quantity
+                  type: INTEGER
+                  defaultValueNumeric: 0
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP
+                  defaultValueComputed: NOW()
+                  constraints:
+                    nullable: false
+        - createIndex:
+            tableName: products
+            indexName: idx_products_name
+            columns:
+              - column:
+                  name: name
+        - createIndex:
+            tableName: products
+            indexName: idx_products_price
+            columns:
+              - column:
+                  name: price
+        - sql:
+            sql: |
+              CREATE TRIGGER products_audit_trigger
+              AFTER INSERT OR UPDATE OR DELETE ON products
+              FOR EACH ROW EXECUTE FUNCTION audit.audit_trigger_func();
+            comment: Audit trigger for products table
+      rollback:
+        - sql:
+            sql: DROP TRIGGER IF EXISTS products_audit_trigger ON products;
+        - dropIndex:
+            tableName: products
+            indexName: idx_products_price
+        - dropIndex:
+            tableName: products
+            indexName: idx_products_name
+        - dropTable:
+            tableName: products

@@ -4,6 +4,14 @@ terraform {
       source  = "kreuzwerker/docker"
       version = "~> 3.0"
     }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -54,7 +62,14 @@ locals {
     "PATRONI_POSTGRESQL__REMOVE_DATA_DIRECTORY_ON_DIVERGENCE=true",
     "PATRONI_DCS_TYPE=etcd3",
     "PATRONI_ETCD__HOSTS=etcd:2379",
-    "PATRONI_ETCD__PROTOCOL=http"
+    "PATRONI_ETCD__PROTOCOL=http",
+    # Patroni-native password env vars — take precedence over YAML password fields
+    "PATRONI_SUPERUSER_USERNAME=postgres",
+    "PATRONI_SUPERUSER_PASSWORD=${local.postgres_password}",
+    "PATRONI_REPLICATION_USERNAME=replicator",
+    "PATRONI_REPLICATION_PASSWORD=${local.replication_password}",
+    "PATRONI_REWIND_USERNAME=pgadmin",
+    "PATRONI_REWIND_PASSWORD=${local.postgres_password}",
   ]
 
   # Infisical credentials (if enabled)
@@ -75,28 +90,50 @@ locals {
 # ============================================================================
 
 resource "random_password" "db_admin_password" {
-  length  = var.password_length
-  special = true
+  length           = var.password_length
+  special          = true
+  override_special = "!_-+"
 }
 
 resource "random_password" "db_replication_password" {
-  length  = var.password_length
-  special = true
+  length           = var.password_length
+  special          = true
+  override_special = "!_-+"
 }
 
 resource "random_password" "pgbouncer_admin_password" {
-  length  = var.password_length
-  special = true
+  length           = var.password_length
+  special          = true
+  override_special = "!_-+"
 }
 
 resource "random_password" "infisical_api_key" {
-  length  = 32
-  special = true
+  length           = 32
+  special          = true
+  override_special = "!_-+"
 }
 
 resource "random_password" "infisical_db_password" {
-  length  = var.password_length
-  special = true
+  length           = var.password_length
+  special          = true
+  override_special = "!_-+"
+}
+
+# ============================================================================
+# Rendered Patroni Configuration (passwords injected from random_password)
+# ============================================================================
+
+resource "local_file" "patroni_config" {
+  for_each = local.pg_nodes
+
+  content = templatefile("${path.module}/patroni/patroni-node.yml.tpl", {
+    node_num             = each.key
+    postgres_password    = local.postgres_password
+    replication_password = local.replication_password
+  })
+
+  filename        = "${path.module}/patroni/rendered/patroni-node-${each.key}.yml"
+  file_permission = "0644"
 }
 
 # ============================================================================
@@ -229,10 +266,10 @@ resource "docker_container" "pg_node" {
     type   = "volume"
   }
 
-  # Patroni configuration
+  # Patroni configuration (rendered with actual passwords by local_file resource)
   mounts {
     target    = "/etc/patroni/patroni.yml"
-    source    = abspath("${path.module}/patroni/patroni-node-${each.key}.yml")
+    source    = abspath(local_file.patroni_config[each.key].filename)
     type      = "bind"
     read_only = true
   }
@@ -277,8 +314,8 @@ resource "docker_container" "pg_node" {
   stop_signal  = "SIGTERM"
   stop_timeout = 30
 
-  # Dependency on etcd
-  depends_on = [docker_container.etcd]
+  # Dependency on etcd and rendered patroni config
+  depends_on = [docker_container.etcd, local_file.patroni_config]
 }
 
 # ============================================================================

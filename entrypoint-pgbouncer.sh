@@ -106,6 +106,7 @@ cat > "$PGBOUNCER_CONFIG_DIR/userlist.txt" <<EOF
 ;; Passwords can be plain text, MD5 ("md5" prefix), or SCRAM-SHA-256
 
 "${DB_ADMIN_USER}" "${DB_ADMIN_PASSWORD}"
+"postgres" "${DB_ADMIN_PASSWORD}"
 "${DB_REPLICATION_USER}" "${DB_REPLICATION_PASSWORD}"
 EOF
 
