@@ -1,3 +1,6 @@
 # Example .gitignore entry
 .vscode/
 
+# Rendered Patroni configs contain plaintext passwords — never commit
+patroni/rendered/
+

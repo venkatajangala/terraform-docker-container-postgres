@@ -1,5 +1,5 @@
 scope: pg-ha-cluster
-name: pg-node-3
+name: pg-node-${node_num}
 namespace: /patroni
 
 bootstrap:
@@ -8,7 +8,6 @@ bootstrap:
     loop_wait: 10
     retry_timeout: 10
     maximum_lag_on_failover: 1048576
-    master_birth_time: 0
     postgresql:
       parameters:
         max_connections: 200
@@ -40,10 +39,10 @@ bootstrap:
 
 restapi:
   listen: 0.0.0.0:8008
-  connect_address: pg-node-3:8008
+  connect_address: pg-node-${node_num}:8008
 
 etcd3:
-  hosts: 
+  hosts:
     - etcd:2379
   protocol: http
 
@@ -52,21 +51,21 @@ postgresql:
   data_dir: /var/lib/postgresql/18/main
   pgpass: /var/lib/postgresql/.pgpass
   listen: 0.0.0.0:5432
-  connect_address: pg-node-3:5432
-  # Passwords are injected at runtime via PATRONI_SUPERUSER_PASSWORD,
-  # PATRONI_REPLICATION_PASSWORD, and PATRONI_REWIND_PASSWORD env vars (main-ha.tf).
-  # The empty password fields must be present so Patroni applies the env var overrides.
+  connect_address: pg-node-${node_num}:5432
+  # Passwords are rendered at terraform apply time from the random_password resources.
+  # The PATRONI_SUPERUSER_PASSWORD / PATRONI_REPLICATION_PASSWORD / PATRONI_REWIND_PASSWORD
+  # env vars in main-ha.tf are kept in sync with these values.
   authentication:
     superuser:
       username: postgres
-      password: ""
+      password: "${postgres_password}"
     replication:
       username: replicator
-      password: ""
+      password: "${replication_password}"
     rewind:
       username: pgadmin
-      password: ""
-  
+      password: "${postgres_password}"
+
   parameters:
     max_connections: 200
     shared_buffers: 256MB

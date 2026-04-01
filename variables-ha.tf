@@ -215,3 +215,42 @@ variable "etcd_memory_mb" {
     error_message = "Memory must be between 256MB and 4GB."
   }
 }
+
+# ============================================================================
+# Liquibase Migration Configuration
+# ============================================================================
+
+variable "liquibase_enabled" {
+  type        = bool
+  default     = true
+  description = "Enable Liquibase database migration container"
+}
+
+variable "liquibase_memory_mb" {
+  type        = number
+  default     = 512
+  description = "Memory limit for Liquibase migration container (MB)"
+
+  validation {
+    condition     = var.liquibase_memory_mb >= 256 && var.liquibase_memory_mb <= 2048
+    error_message = "Memory must be between 256MB and 2GB."
+  }
+}
+
+variable "liquibase_max_retries" {
+  type        = number
+  default     = 30
+  description = "Maximum retry attempts for Liquibase to connect to PostgreSQL"
+}
+
+variable "liquibase_retry_interval" {
+  type        = number
+  default     = 5
+  description = "Retry interval in seconds for Liquibase connection attempts"
+}
+
+variable "liquibase_auto_run" {
+  type        = bool
+  default     = true
+  description = "Automatically run Liquibase migrations on container startup"
+}

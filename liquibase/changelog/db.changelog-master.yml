@@ -1,0 +1,9 @@
+databaseChangeLog:
+  - include:
+      file: 01-init-schema.yml
+  - include:
+      file: 02-add-extensions.yml
+  - include:
+      file: 03-create-tables.yml
+  - include:
+      file: 04-add-products.yml

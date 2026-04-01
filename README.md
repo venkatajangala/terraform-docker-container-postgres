@@ -52,6 +52,15 @@ unset PGPASSWORD
 - **pgvector support** for AI/ML workloads
 - **version 18.2** with modern extensions
 
+### ✅ Liquibase Database Migrations
+- **Version control** for all schema changes
+- **Automatic changelog generation** on cluster startup
+- **HA-aware** - waits for primary election before executing
+- **Rollback support** - reversible changes on demand
+- **Audit trail** - complete migration history in database
+- **pgvector included** - 1536-dimensional embeddings with IVFFLAT search
+- **Comprehensive audit logging** - tracks all DML operations
+
 ### ✅ Patroni Orchestration
 - Automatic leader election
 - Cluster health monitoring

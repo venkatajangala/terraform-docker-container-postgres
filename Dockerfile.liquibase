@@ -1,0 +1,32 @@
+# ============================================================================
+# Liquibase 5.0.1 with PostgreSQL Driver
+# ============================================================================
+FROM liquibase/liquibase:5.0.1
+
+USER root
+
+# Install PostgreSQL client for pg_isready and psql health checks
+RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install PostgreSQL JDBC driver via Liquibase Package Manager
+RUN /liquibase/bin/lpm add postgresql --global 2>&1 || \
+    (echo "lpm failed, downloading JDBC driver directly..." && \
+     curl -fsSL https://jdbc.postgresql.org/download/postgresql-42.7.3.jar \
+       -o /liquibase/lib/postgresql-42.7.3.jar && \
+     chown liquibase:liquibase /liquibase/lib/postgresql-42.7.3.jar)
+
+# Create changelog directory
+RUN mkdir -p /liquibase/changelog /liquibase/config
+
+# Copy and set permissions on entrypoint script
+COPY liquibase-entrypoint.sh /liquibase/
+RUN chmod +x /liquibase/liquibase-entrypoint.sh && \
+    chown -R liquibase:liquibase /liquibase
+
+USER liquibase
+
+WORKDIR /liquibase
+
+ENTRYPOINT ["/liquibase/liquibase-entrypoint.sh"]
+CMD ["liquibase", "update"]

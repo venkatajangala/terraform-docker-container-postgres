@@ -1,0 +1,44 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1-create-audit-schema
+      author: liquibase
+      description: Create audit schema for tracking changes
+      changes:
+        - sql:
+            sql: CREATE SCHEMA IF NOT EXISTS audit;
+            comment: Audit schema for change tracking
+      rollback:
+        - sql:
+            sql: DROP SCHEMA IF EXISTS audit CASCADE;
+
+  - changeSet:
+      id: 2-create-audit-function
+      author: liquibase
+      description: Create audit trigger function
+      changes:
+        - sql:
+            sql: |
+              CREATE OR REPLACE FUNCTION audit.audit_trigger_func()
+              RETURNS TRIGGER AS $$
+              BEGIN
+                  IF TG_OP = 'DELETE' THEN
+                      INSERT INTO audit.audit_log (table_name, operation, old_data, changed_at)
+                      VALUES (TG_TABLE_NAME, TG_OP, row_to_json(OLD), NOW());
+                      RETURN OLD;
+                  ELSIF TG_OP = 'INSERT' THEN
+                      INSERT INTO audit.audit_log (table_name, operation, new_data, changed_at)
+                      VALUES (TG_TABLE_NAME, TG_OP, row_to_json(NEW), NOW());
+                      RETURN NEW;
+                  ELSIF TG_OP = 'UPDATE' THEN
+                      INSERT INTO audit.audit_log (table_name, operation, old_data, new_data, changed_at)
+                      VALUES (TG_TABLE_NAME, TG_OP, row_to_json(OLD), row_to_json(NEW), NOW());
+                      RETURN NEW;
+                  END IF;
+              END;
+              $$ LANGUAGE plpgsql;
+            comment: Function for audit logging on DML operations
+            splitStatements: false
+            stripComments: false
+      rollback:
+        - sql:
+            sql: DROP FUNCTION IF EXISTS audit.audit_trigger_func();
