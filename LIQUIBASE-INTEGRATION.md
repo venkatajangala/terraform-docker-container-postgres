@@ -12,40 +12,43 @@ This integration adds **Liquibase 5.0.1** database migration management to your 
 
 ## Architecture
 
+```mermaid
+graph TD
+    LB[Liquibase 5.0.1\nMigration Container]
+    PGB[PgBouncer\npostgres_liquibase pool\nsession mode — pg-node-1 only]
+    PG1[pg-node-1\nPatroni Primary\nPostgreSQL 18]
+    PG2[pg-node-2\nReplica]
+    PG3[pg-node-3\nReplica]
+
+    LB -->|JDBC :6432| PGB
+    PGB -->|routes exclusively| PG1
+    PG1 -->|WAL streaming| PG2
+    PG1 -->|WAL streaming| PG3
+
+    style LB fill:#37474f,color:#fff
+    style PGB fill:#6a1b9a,color:#fff
+    style PG1 fill:#2e7d32,color:#fff
+    style PG2 fill:#1565c0,color:#fff
+    style PG3 fill:#1565c0,color:#fff
 ```
-┌─────────────────┐
-│ Liquibase 5.0.1 │ (Migration Engine)
-│  Container      │
-└────────┬────────┘
-         │ (JDBC Driver)
-         │ (Wait for Primary)
-         ▼
-┌─────────────────┐
-│  Patroni Primary│ (pg-node-1)
-│  (PostgreSQL)   │
-└────────┬────────┘
-         │ (Replication)
-         ▼
-┌─────────────────┐
-│  Patroni Replicas
-│  (Standby Nodes)
-└─────────────────┘
-```
+
+Liquibase connects via PgBouncer's `postgres_liquibase` **session-mode** pool, which routes exclusively to pg-node-1. This prevents round-robin routing to replicas and ensures advisory locks (required by Liquibase) work correctly.
 
 ## File Structure
 
-```
+```text
 .
 ├── Dockerfile.liquibase              # Liquibase Docker image definition
-├── liquibase-entrypoint.sh           # Entrypoint script for container
-├── main-liquibase.tf                 # Terraform configuration for Liquibase
+├── liquibase-entrypoint.sh           # Entrypoint: waits for primary, then runs migrations
+├── main-liquibase.tf                 # Terraform configuration for Liquibase container
 ├── liquibase/
 │   ├── liquibase.properties          # Liquibase configuration file
 │   └── changelog/
-│       ├── db.changelog-master.yml   # Master changelog (includes all migrations)
-│       ├── 01-init-schema.yml        # Schema initialization (audit schema)
+│       ├── db.changelog-master.yml   # Master changelog (includes all migrations in order)
+│       ├── 01-init-schema.yml        # Schema initialization (audit schema + trigger function)
 │       ├── 02-add-extensions.yml     # PostgreSQL extensions setup
-│       └── 03-create-tables.yml      # Application tables with pgvector support
+│       ├── 03-create-tables.yml      # Application tables with pgvector support
+│       └── 04-add-products.yml       # Products table with audit trigger (e-commerce catalog)
 ```
 
 ## Quick Start
@@ -55,8 +58,8 @@ This integration adds **Liquibase 5.0.1** database migration management to your 
 The Liquibase container is automatically built and deployed as part of your HA cluster:
 
 ```bash
-# Enable Liquibase (default: enabled)
-terraform apply -var="liquibase_enabled=true"
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+sleep 150   # Wait for Patroni leader election before Liquibase runs
 ```
 
 ### 2. Monitor Migration Progress
@@ -65,8 +68,8 @@ terraform apply -var="liquibase_enabled=true"
 # View Liquibase container logs
 docker logs liquibase-migrations
 
-# Check migration status
-docker inspect liquibase-migrations --format='{{.State.Status}}'
+# Check exit status (0 = success)
+docker inspect liquibase-migrations --format='{{.State.ExitCode}}'
 ```
 
 ### 3. Verify Migrations
@@ -74,8 +77,8 @@ docker inspect liquibase-migrations --format='{{.State.Status}}'
 Connect to PostgreSQL and verify schema:
 
 ```bash
-# Connect to primary node
-psql -h localhost -p 5432 -U pgadmin -d postgres
+# Connect via PgBouncer (recommended)
+psql -h localhost -p 6432 -U pgadmin -d postgres
 
 # List all tables
 \dt
@@ -91,29 +94,30 @@ SELECT extname FROM pg_extension;
 
 ### Master Changelog (`db.changelog-master.yml`)
 
-Aggregates all migration files in order:
+Aggregates all migration files in order. Uses Liquibase 5.x list format:
 
 ```yaml
 databaseChangeLog:
-  logicalFilePath: db.changelog-master
-  changeSet:
-    - include:
-        file: changelog/01-init-schema.yml
-    - include:
-        file: changelog/02-add-extensions.yml
-    - include:
-        file: changelog/03-create-tables.yml
+  - include:
+      file: 01-init-schema.yml
+  - include:
+      file: 02-add-extensions.yml
+  - include:
+      file: 03-create-tables.yml
+  - include:
+      file: 04-add-products.yml
 ```
+
+> **Note:** File paths are relative to the changelog search path root (`/liquibase/changelog/`). Do not use a `changelog/` prefix.
 
 ### Migration Files
 
-Each changelog file contains versioned `changeSet` entries:
+Each changelog file uses Liquibase 5.x **list syntax** — each `changeSet` must begin with `- changeSet:`:
 
 ```yaml
 databaseChangeLog:
-  logicalFilePath: 01-init-schema
-  changeSet:
-    - id: 1-create-audit-schema
+  - changeSet:
+      id: 1-create-audit-schema
       author: liquibase
       description: Create audit schema
       changes:
@@ -124,13 +128,17 @@ databaseChangeLog:
             sql: DROP SCHEMA IF EXISTS audit CASCADE;
 ```
 
+> **Important:** For multi-statement SQL (e.g., PL/pgSQL functions with `$$` dollar quoting), add `splitStatements: false` to the `sql` change to prevent Liquibase from splitting on internal semicolons.
+
 ## Included Migrations
 
 ### 01-init-schema.yml
+
 - Creates `audit` schema for change tracking
-- Creates `audit.audit_trigger_func()` for DML logging
+- Creates `audit.audit_trigger_func()` PL/pgSQL function for DML logging (INSERT/UPDATE/DELETE)
 
 ### 02-add-extensions.yml
+
 - `vector` - pgvector for embeddings (1536-dim OpenAI support)
 - `pg_stat_statements` - Query performance monitoring
 - `pgcrypto` - Cryptographic functions
@@ -138,63 +146,75 @@ databaseChangeLog:
 
 ### 03-create-tables.yml
 
-**audit.audit_log**
+#### audit.audit_log
+
 - Tracks all INSERT/UPDATE/DELETE operations
 - Stores old/new data as JSONB
 - Indexed on table_name and changed_at
 
-**public.users**
+#### public.users
+
 - UUID primary key with auto-generation
 - Unique constraints on username and email
 - Audit triggers enabled
 
-**public.items** (with vector support)
+#### public.items (with vector support)
+
 - Links to users via foreign key
 - 1536-dimensional OpenAI embeddings
 - IVFFLAT vector index for similarity search
 - Audit triggers enabled
 
-**public.sessions**
+#### public.sessions
+
 - Session tokens and expiration tracking
 - User foreign key with cascade
 - Indexes on user_id and expires_at
 
+### 04-add-products.yml
+
+#### public.products
+
+- UUID primary key with auto-generation
+- name (VARCHAR 255, NOT NULL), description (TEXT), price (DECIMAL 10,2 NOT NULL)
+- stock_quantity (INTEGER, default 0)
+- created_at / updated_at timestamps
+- Indexes on name and price
+- Audit trigger enabled
+
 ## Environment Variables
 
-### Database Connection
-- `DB_HOST` - PostgreSQL host (default: pg-node-1)
-- `DB_PORT` - PostgreSQL port (default: 5432)
-- `DB_NAME` - Database name (default: postgres)
-- `DB_USER` - Database user (default: postgres)
+### Database Connection (used by liquibase-entrypoint.sh)
+
+- `DB_HOST` - PostgreSQL host via PgBouncer (default: pgbouncer-1)
+- `DB_PORT` - PgBouncer port (default: 6432)
+- `DB_NAME` - Session pool name for health check (default: postgres_liquibase)
+- `DB_USER` - Database user (default: postgres — superuser required for DDL)
 - `DB_PASSWORD` - Database password (required)
 
 ### Retry Configuration
-- `MAX_RETRIES` - Retry attempts (default: 30)
+
+- `MAX_RETRIES` - Retry attempts waiting for primary (default: 30)
 - `RETRY_INTERVAL` - Seconds between retries (default: 5)
 
-### Liquibase Options
-- `LIQUIBASE_CHANGELOG_FILE` - Changelog file path
-- `LIQUIBASE_DRIVER_CLASS_NAME` - JDBC driver class
-- `LIQUIBASE_URL` - JDBC URL
-- `LIQUIBASE_USERNAME` - Database user
-- `LIQUIBASE_PASSWORD` - Database password
+> **Note (Liquibase 5.x):** Connection parameters (`--url`, `--username`, `--password`, `--driver`) are passed directly as CLI arguments, not as `LIQUIBASE_*` environment variables. The Liquibase 5.x env var naming differs from 4.x; the entrypoint uses CLI args for compatibility.
 
 ## Adding New Migrations
 
 ### Step 1: Create New Changelog File
 
-```bash
-# Create new migration file in liquibase/changelog/
-cat > liquibase/changelog/04-add-new-feature.yml << 'EOF'
+Use Liquibase 5.x list syntax (`- changeSet:`):
+
+```yaml
+# liquibase/changelog/05-add-orders.yml
 databaseChangeLog:
-  logicalFilePath: 04-add-new-feature
-  changeSet:
-    - id: 1-create-products-table
+  - changeSet:
+      id: 1-create-orders-table
       author: your-name
-      description: Create products table
+      description: Create orders table
       changes:
         - createTable:
-            tableName: products
+            tableName: orders
             columns:
               - column:
                   name: id
@@ -202,47 +222,50 @@ databaseChangeLog:
                   defaultValueComputed: gen_random_uuid()
                   constraints:
                     primaryKey: true
+                    nullable: false
               - column:
-                  name: name
-                  type: VARCHAR(255)
+                  name: user_id
+                  type: UUID
                   constraints:
                     nullable: false
               - column:
-                  name: price
+                  name: total
                   type: DECIMAL(10,2)
                   constraints:
                     nullable: false
-EOF
+      rollback:
+        - dropTable:
+            tableName: orders
 ```
 
 ### Step 2: Add to Master Changelog
 
 ```yaml
-# Edit liquibase/changelog/db.changelog-master.yml
+# liquibase/changelog/db.changelog-master.yml
 databaseChangeLog:
-  logicalFilePath: db.changelog-master
-  changeSet:
-    - include:
-        file: changelog/01-init-schema.yml
-    - include:
-        file: changelog/02-add-extensions.yml
-    - include:
-        file: changelog/03-create-tables.yml
-    - include:
-        file: changelog/04-add-new-feature.yml  # Add new file here
+  - include:
+      file: 01-init-schema.yml
+  - include:
+      file: 02-add-extensions.yml
+  - include:
+      file: 03-create-tables.yml
+  - include:
+      file: 04-add-products.yml
+  - include:
+      file: 05-add-orders.yml   # Add new file here
 ```
 
 ### Step 3: Deploy Migration
 
 ```bash
-# Rebuild and deploy
-terraform apply -var="liquibase_enabled=true"
+# Rebuild and redeploy
+terraform apply -var-file="ha-test.tfvars" -auto-approve
 
 # Monitor progress
 docker logs -f liquibase-migrations
 
 # Verify in PostgreSQL
-psql -h localhost -p 5432 -U pgadmin -d postgres -c "\\dt"
+psql -h localhost -p 6432 -U pgadmin -d postgres -c "\dt"
 ```
 
 ## Viewing Migration History
@@ -251,16 +274,12 @@ psql -h localhost -p 5432 -U pgadmin -d postgres -c "\\dt"
 
 ```sql
 -- Connect to PostgreSQL
-psql -h localhost -p 5432 -U pgadmin -d postgres
+psql -h localhost -p 6432 -U pgadmin -d postgres
 
 -- View all applied changes
-SELECT * FROM public.databasechangelog
-ORDER BY orderexecuted DESC;
-
--- View change details
-SELECT id, author, dateexecuted, description 
+SELECT id, author, dateexecuted, description
 FROM public.databasechangelog
-ORDER BY dateexecuted DESC;
+ORDER BY orderexecuted DESC;
 ```
 
 ### Audit Trail
@@ -287,52 +306,51 @@ GROUP BY operation;
 ### Rollback Last Migration
 
 ```bash
-# Connect to Liquibase container
-docker exec -it liquibase-migrations bash
-
-# Count changesets
-liquibase --changeLogFile=changelog/db.changelog-master.yml \
-          status
-
-# Rollback to specific changeset
-liquibase --changeLogFile=changelog/db.changelog-master.yml \
-          rollbackCount 1
+# Run inside the Liquibase container (or using liquibase CLI locally)
+liquibase --changeLogFile=db.changelog-master.yml \
+          --url="jdbc:postgresql://localhost:6432/postgres" \
+          --username=postgres \
+          --password="$DB_PASSWORD" \
+          rollback-count 1
 ```
 
 ### Rollback to Specific Date
 
 ```bash
-liquibase --changeLogFile=changelog/db.changelog-master.yml \
-          rollbackToDate 2024-01-15T10:00:00
+liquibase --changeLogFile=db.changelog-master.yml \
+          --url="jdbc:postgresql://localhost:6432/postgres" \
+          --username=postgres \
+          --password="$DB_PASSWORD" \
+          rollback-to-date 2024-01-15T10:00:00
 ```
 
 ## Configuration Files
 
 ### liquibase.properties
 
-Standard Liquibase properties file. For production deployments, override with environment variables:
+Provides defaults for CLI invocations. Connection params passed as CLI args take precedence:
 
 ```properties
 driver: org.postgresql.Driver
-url: jdbc:postgresql://pg-node-1:5432/postgres
+url: jdbc:postgresql://pgbouncer-1:6432/postgres
 username: postgres
-password: ${POSTGRES_PASSWORD}
-changeLogFile: changelog/db.changelog-master.yml
+changeLogFile: db.changelog-master.yml
 logLevel: info
 ```
 
 ## Troubleshooting
 
-### Container Exits Immediately
+### Container Exits with Error
 
 ```bash
-# Check logs
+# Check logs for detailed error
 docker logs liquibase-migrations
 
 # Common issues:
-# 1. PostgreSQL not ready - wait 30-60 seconds for cluster startup
-# 2. Changelog file not found - verify liquibase/changelog/ directory
-# 3. Database connection error - verify DB_HOST, DB_PORT, DB_PASSWORD
+# 1. PgBouncer not ready — wait 120-150s for Patroni leader election
+# 2. Changelog file not found — verify file paths don't have 'changelog/' prefix
+# 3. YAML parse error — ensure changesets use '- changeSet:' list syntax
+# 4. PL/pgSQL fails — add 'splitStatements: false' to sql change
 ```
 
 ### Failed Migration
@@ -341,73 +359,35 @@ docker logs liquibase-migrations
 # View error details
 docker logs liquibase-migrations | grep -i error
 
-# In case of partial failure, Liquibase maintains state in:
-SELECT * FROM public.databasechangelog
-WHERE execstatus = 'failed';
-
-# Manual intervention may be required
+# Check for failed changesets in database
+psql -h localhost -p 6432 -U pgadmin -d postgres \
+  -c "SELECT id, execstatus, md5sum FROM public.databasechangelog WHERE execstatus != 'EXECUTED';"
 ```
 
 ### Verify Migrations Applied
 
 ```bash
-# Check applied changesets
-docker exec liquibase-migrations \
-  liquibase --changeLogFile=changelog/db.changelog-master.yml \
-            status
-
-# Expected output shows all changesets marked as EXECUTED
+# Check applied changesets count
+psql -h localhost -p 6432 -U pgadmin -d postgres \
+  -c "SELECT COUNT(*) FROM public.databasechangelog;"
+# Expected: 11 rows (across 4 changelog files)
 ```
 
 ## Best Practices
 
 1. **One Change Per ChangeSet**: Keep each logical change in its own changeset for granular rollback control
-
 2. **Always Include Rollback**: Provide rollback logic for every changeset
-
 3. **Idempotent Operations**: Use `IF NOT EXISTS` and `IF EXISTS` to prevent errors on re-runs
-
-4. **Test Migrations**: Test in staging environment before deploying to production
-
-5. **Version Control**: Track all changelog files in Git with descriptive commit messages
-
+4. **PL/pgSQL Functions**: Always set `splitStatements: false` and `stripComments: false`
+5. **Session Pool for DDL**: Liquibase must connect via the `postgres_liquibase` session pool (not the round-robin `postgres` pool)
 6. **Audit Trail**: Review `audit.audit_log` for compliance and troubleshooting
-
-7. **Documentation**: Add descriptions to changesets explaining the business purpose
 
 ## Performance Considerations
 
 - **Vector Indexes**: IVFFLAT with 100 lists optimized for OpenAI embeddings (1536 dims)
-- **Audit Logging**: Triggers on all user and items tables - may impact write performance
-- **Database Locks**: Migration container runs sequentially - no parallel execution
-- **Primary Node Only**: All migrations execute on primary node before replicating to standby
-
-## Integration with CI/CD
-
-### GitHub Actions Example
-
-```yaml
-name: Deploy Database Migrations
-
-on: [push]
-
-jobs:
-  migrate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      
-      - name: Deploy HA PostgreSQL + Liquibase
-        run: |
-          terraform apply \
-            -var="liquibase_enabled=true" \
-            -var="postgres_password=${{ secrets.DB_PASSWORD }}"
-            
-      - name: Verify Migrations
-        run: |
-          docker exec liquibase-migrations \
-            liquibase status
-```
+- **Audit Logging**: Triggers on all tables — may impact write performance at high throughput
+- **Primary Node Only**: All migrations execute on primary before replicating to standbys
+- **Session Mode Required**: The `postgres_liquibase` PgBouncer pool uses session mode to support advisory locks
 
 ## References
 

@@ -1,6 +1,6 @@
 # PostgreSQL HA Cluster - Complete Deployment & Operations Guide
 
-> **Status:** ✓ DEPLOYED & TESTED | **Date:** 2026 | **Version:** Phase 1 Optimized
+> **Status:** ✓ DEPLOYED & TESTED | **Date:** 2026-03-31 | **Version:** HA + Liquibase
 
 ## Table of Contents
 1. [Prerequisites](#prerequisites)
