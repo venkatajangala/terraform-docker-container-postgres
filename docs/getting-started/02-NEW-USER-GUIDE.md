@@ -1,4 +1,4 @@
-# 📖 New User Guide - Complete Overview
+# 📖 New User Guide — Complete Overview
 
 Welcome! This guide gives you a complete understanding of your PostgreSQL HA infrastructure.
 
@@ -6,43 +6,39 @@ Welcome! This guide gives you a complete understanding of your PostgreSQL HA inf
 
 You've deployed a **production-ready PostgreSQL HA cluster** with high availability, automatic failover, and connection pooling. Here's the architecture:
 
-```
-┌─────────────────────────────────────────────────────┐
-│              Your Applications                       │
-└─────────────────┬───────────────────────────────────┘
-                  │
-        ┌─────────▼─────────────┐
-        │   PgBouncer (2x HA)   │  ← Connection pooling
-        │  Port: 6432, 6433     │     (Auto load-balanced)
-        └─────────┬─────────────┘
-                  │
-    ┌─────────────┼────────────────┐
-    │             │                │
- ┌──▼───┐  ┌─────▼────┐  ┌───────▼──┐
- │ PG-1 │  │  PG-2    │  │  PG-3    │  ← Patroni-managed
- │ Prim-│◄─►  Repl   │◄─►  Repl    │     Auto failover
- │ ary  │  │ (read)   │  │ (read)   │     Via etcd consensus
- └───┬──┘  └──────────┘  └──────────┘
-     │
-     └─ etcd cluster @ 2379  ← Stores cluster state
-        (Distributed consensus)
+```mermaid
+graph TD
+    APP["Your Applications"]
+    PGB["PgBouncer (2× HA)<br/>:6432 / :6433 — Connection pooling"]
+    PG1["PG-1 PRIMARY<br/>:5432"]
+    PG2["PG-2 REPLICA<br/>:5433"]
+    PG3["PG-3 REPLICA<br/>:5434"]
+    ETCD["etcd cluster<br/>:2379 — Distributed consensus"]
+
+    APP --> PGB
+    PGB --> PG1 & PG2 & PG3
+    PG1 -->|"WAL streaming"| PG2 & PG3
+    PG1 & PG2 & PG3 <-->|"Leader election"| ETCD
 ```
 
 ## Inside This Cluster
 
 ### 🐘 PostgreSQL (3 Nodes)
+
 - **Version**: PostgreSQL 18.2
 - **Replication**: Synchronous streaming (no data loss)
 - **Extensions**: pgvector (AI/ML), uuid-ossp, pg_stat_statements
-- **HA Features**: Automatic failover in <30 seconds
-- **Ports**: 5432-5434 (one per node)
+- **HA Features**: Automatic failover in < 30 seconds
+- **Ports**: 5432–5434 (one per node)
 
 ### ⚙️ Patroni
+
 - **Role**: Cluster orchestration and management
 - **Function**: Elects leader, manages replicas, handles failover
-- **API**: REST endpoints for monitoring (ports 8008-8010)
+- **API**: REST endpoints for monitoring (ports 8008–8010)
 
-### 🔀 PgBouncer (NEW!)
+### 🔀 PgBouncer
+
 - **Role**: Connection pooling proxy
 - **Instances**: 2 (for high availability)
 - **Pool Mode**: Transaction-level (default)
@@ -50,11 +46,13 @@ You've deployed a **production-ready PostgreSQL HA cluster** with high availabil
 - **Benefits**: Handles 1000s of concurrent connections with just ~100 backend connections
 
 ### 💾 etcd
+
 - **Role**: Distributed configuration store
 - **Function**: Stores cluster state, leader election
-- **Ports**: 2379-2380
+- **Ports**: 2379–2380
 
 ### 🌐 DBHub (Bytebase)
+
 - **Role**: Web-based database management UI
 - **Access**: http://localhost:9090
 - **Features**: Query execution, schema browser, migrations
@@ -62,22 +60,26 @@ You've deployed a **production-ready PostgreSQL HA cluster** with high availabil
 ## Key Capabilities
 
 ### ✅ High Availability
-- **Automatic Failover**: If primary fails, one of 3 replicas becomes primary in <30 sec
+
+- **Automatic Failover**: If primary fails, a replica becomes primary in < 30 sec
 - **No Single Point of Failure**: etcd provides distributed consensus (3-way vote)
 - **Replication**: Data synced to replicas continuously
 
 ### ✅ Connection Pooling
+
 - **Reduce Overhead**: PgBouncer reuses connections (vs creating new ones)
 - **Support Scaling**: Handle thousands of client connections with fewer backend connections
 - **Admin Console**: Monitor pools, connections, statistics in real-time
 
 ### ✅ Observability
+
 - **Cluster API**: REST endpoints show real-time cluster status
 - **Web UI**: Visual database management at http://localhost:9090
 - **Logs**: All container logs available via `docker logs`
 
 ### ✅ Production Ready
-- **Tested**: 17/23 test scenarios passing (all infrastructure operational)
+
+- **Tested**: 35/35 assertions across 12 tests passed
 - **Documented**: Comprehensive guides for every operation
 - **Monitored**: Health checks, admin console, log aggregation
 
@@ -85,36 +87,45 @@ You've deployed a **production-ready PostgreSQL HA cluster** with high availabil
 
 ### Scenario 1: I Want to Query the Database
 
-**Option A: Via PgBouncer (Recommended)**
+**Get your password first:**
+
 ```bash
-# Method 1: Using environment variable
-export PGPASSWORD='pgAdmin1'
+terraform output generated_passwords
+```
+
+**Option A: Via PgBouncer (Recommended)**
+
+```bash
+# Method 1: Environment variable
+export PGPASSWORD='<password from generated_passwords>'
 psql -h localhost -p 6432 -U pgadmin -d postgres
 unset PGPASSWORD
 
 # Method 2: Interactive password prompt
 psql -h localhost -p 6432 -U pgadmin -d postgres -W
 
-# Method 3: Connection string with password
-psql "postgresql://pgadmin:pgAdmin1@localhost:6432/postgres"
+# Method 3: Connection string
+psql "postgresql://pgadmin:<password from generated_passwords>@localhost:6432/postgres"
 ```
 
 **Option B: Direct to Primary**
+
 ```bash
-export PGPASSWORD='pgAdmin1'
+export PGPASSWORD='<password from generated_passwords>'
 psql -h localhost -p 5432 -U pgadmin -d postgres
 ```
 
 **Option C: Direct to Replica (Read-Only)**
+
 ```bash
-export PGPASSWORD='pgAdmin1'
+export PGPASSWORD='<password from generated_passwords>'
 psql -h localhost -p 5433 -U pgadmin -d postgres  # Replica 1
 psql -h localhost -p 5434 -U pgadmin -d postgres  # Replica 2
 ```
 
 **Recommendation**: Use PgBouncer (Option A) for all applications. See [PgBouncer Authentication](../pgbouncer/AUTHENTICATION.md) for detailed password handling options.
 
-### Scenario 2: The Primary Failed - What Happens?
+### Scenario 2: The Primary Failed — What Happens?
 
 1. **Failure Detected** (within 30 seconds)
    - Patroni notices pg-node-1 is unresponsive
@@ -130,6 +141,7 @@ psql -h localhost -p 5434 -U pgadmin -d postgres  # Replica 2
    - Most applications see no interruption
 
 **Test this yourself:**
+
 ```bash
 docker stop pg-node-1          # Simulate failure
 sleep 30
@@ -140,6 +152,7 @@ docker start pg-node-1         # Heal
 ### Scenario 3: I Want to Monitor Cluster Health
 
 **Quick Health Check:**
+
 ```bash
 # Check if all nodes are running
 docker ps | grep -E 'pg-node|pgbouncer|etcd'
@@ -152,8 +165,9 @@ curl -s http://localhost:8008/replica | python3 -m json.tool | grep lag
 ```
 
 **Via PgBouncer Admin:**
+
 ```bash
-psql -h localhost -p 6432 -U pgadmin -d pgbouncer
+PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 6432 -U pgadmin -d pgbouncer
 pgbouncer> SHOW POOLS;      # Connection pool status
 pgbouncer> SHOW STATS;      # Detailed statistics
 pgbouncer> SHOW CLIENTS;    # Active clients
@@ -163,7 +177,7 @@ pgbouncer> SHOW CLIENTS;    # Active clients
 
 ```bash
 # Create table
-psql -h localhost -p 6432 -U pgadmin -d postgres << 'EOF'
+PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 6432 -U pgadmin -d postgres << 'EOF'
 CREATE TABLE my_table (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
@@ -172,19 +186,19 @@ CREATE TABLE my_table (
 EOF
 
 # Insert data
-psql -h localhost -p 6432 -U pgadmin -d postgres << 'EOF'
+PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 6432 -U pgadmin -d postgres << 'EOF'
 INSERT INTO my_table (name) VALUES ('Alice'), ('Bob'), ('Charlie');
 SELECT * FROM my_table;
 EOF
 
 # Verify on replica (read-only)
-psql -h localhost -p 5433 -U pgadmin -d postgres -c "SELECT * FROM my_table;"
+PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 5433 -U pgadmin -d postgres -c "SELECT * FROM my_table;"
 ```
 
 ## Important Ports
 
 | Port | Service | Purpose | Access |
-|------|---------|---------|--------|
+| ---- | ------- | ------- | ------ |
 | 6432 | PgBouncer-1 | Connection pooling | Your apps here ✅ |
 | 6433 | PgBouncer-2 | Connection pooling | Failover |
 | 5432 | PostgreSQL-1 | Primary DB | Direct access |
@@ -198,78 +212,91 @@ psql -h localhost -p 5433 -U pgadmin -d postgres -c "SELECT * FROM my_table;"
 
 ## File Organization
 
-```
+```text
 Your project:
-├── README.md                    ← Main overview (you're reading this)
-├── docs/                        ← All documentation (you're here)
-├── terraform files              ← Infrastructure code
+├── README.md                    ← Main overview
+├── docs/                        ← All documentation
+├── main-ha.tf                   ← Core infrastructure (Terraform)
+├── variables-ha.tf              ← All configuration knobs
+├── outputs-ha.tf                ← Connection strings & endpoints
+├── ha-test.tfvars               ← Your deployment values
 ├── pgbouncer/                   ← PgBouncer configs
 │   ├── pgbouncer.ini           ← Main config
-│   └── userlist.txt            ← Credentials
+│   └── userlist.txt            ← Credentials (generated at apply)
 ├── patroni/                     ← Patroni node configs
-│   ├── patroni-node-1.yml
-│   ├── patroni-node-2.yml
-│   └── patroni-node-3.yml
-└── single-node/                 ← Legacy single-node version
+│   └── rendered/               ← Generated at terraform apply (gitignored)
+└── liquibase/changelog/         ← Schema migrations
 ```
 
 ## Security Considerations
 
-### Current Defaults (⚠️ For Development Only)
+### Current Setup
+
 - **PostgreSQL User**: `pgadmin`
-- **PostgreSQL Password**: `pgAdmin1` (in pgbouncer/userlist.txt)
-- **Network**: Docker bridge (isolated, not exposed externally)
+- **Password**: Auto-generated by Terraform — retrieve with `terraform output generated_passwords`
+- **Auth method**: SCRAM-SHA-256 (no plain-text passwords in transit)
+- **Network**: Docker bridge (isolated, not exposed externally by default)
 
 ### Before Production ⚠️
-- [ ] Change `pgAdmin1` password
-- [ ] Update `pgbouncer/userlist.txt` with new credentials
+
+- [ ] Review and tighten port exposure in `ha-test.tfvars`
 - [ ] Enable SSL/TLS for remote connections
 - [ ] Restrict network access to authorized users only
-- [ ] Review [Security Hardening Guide](../reference/SECURITY.md)
+- [ ] Enable PostgreSQL audit logging (`pgaudit`)
+- [ ] Configure automated backups
+- [ ] Review the Security Boundaries section in [Architecture Overview](../architecture/ARCHITECTURE.md)
 
 ## Development vs Production
 
 ### Development Setup (Current)
+
 - ✅ Quick local deployment
 - ✅ Easy testing and debugging
-- ✅ Default credentials for ease
-- ⚠️ Not suitable for sensitive data
+- ✅ Auto-generated credentials
+- ⚠️ Not suitable for sensitive data without further hardening
 
 ### Production Setup
-- 🔒 Change default passwords
+
 - 🔒 Enable SSL/TLS
-- 🔒 Add authentication/RBAC
+- 🔒 Restrict port exposure with firewall rules
 - 🔒 Enable PostgreSQL audit logging
 - 🔒 Set up automated backups
 - 🔒 Configure monitoring and alerts
-
-See [Security Hardening](../reference/SECURITY.md) for production checklist.
+- 🔒 Enable Infisical for secrets rotation (see [Infisical Quick Start](INFISICAL-QUICKSTART.md))
 
 ## Your Next Steps (Choose One)
 
 ### Option 1: Just Want to Use It
-→ Skip ahead to [Quick Start](01-QUICK-START.md) section "Common Next Steps"
+
+→ See [Quick Start](01-QUICK-START.md) section "Common Next Steps"
 
 ### Option 2: Want to Understand It Better
+
 → Read [Architecture Overview](../architecture/ARCHITECTURE.md)
 
 ### Option 3: Need to Operate It
+
 → Review [Operations & Maintenance](../guides/02-OPERATIONS.md)
 
 ### Option 4: Want to Configure It
-→ Consult [Configuration Reference](../reference/CONFIG-REFERENCE.md)
+
+→ Edit `ha-test.tfvars` and review `variables-ha.tf` for all available knobs
 
 ### Option 5: Something's Wrong
+
 → Check [Troubleshooting](../guides/03-TROUBLESHOOTING.md)
 
 ## Quick Commands Reference
 
 ```bash
+# Get generated passwords
+terraform output generated_passwords
+
 # View cluster status
 curl -s http://localhost:8008/cluster | python3 -m json.tool
 
 # Check PgBouncer pools
-psql -h localhost -p 6432 -U pgadmin -d pgbouncer -c "SHOW POOLS;"
+PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 6432 -U pgadmin -d pgbouncer -c "SHOW POOLS;"
 
 # View container logs
 docker logs pg-node-1 -f
@@ -277,18 +304,16 @@ docker logs pgbouncer-1 -f
 docker logs etcd -f
 
 # Test connections
+export PGPASSWORD='<password from generated_passwords>'
 psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1;"
 psql -h localhost -p 5432 -U pgadmin -d postgres -c "SELECT 1;"
-
-# Admin console
-psql -h localhost -p 6432 -U pgadmin -d pgbouncer
-# Inside pgbouncer> \d; SHOW POOLS; \q
+unset PGPASSWORD
 ```
 
 ## Terminology
 
 | Term | Meaning |
-|------|---------|
+| ---- | ------- |
 | **HA** | High Availability (survives component failures) |
 | **Failover** | Automatic promotion of replica to primary |
 | **Replica** | Read-only copy of primary database |
@@ -297,36 +322,34 @@ psql -h localhost -p 6432 -U pgadmin -d pgbouncer
 | **etcd** | Distributed configuration and leader election service |
 | **PgBouncer** | Connection pooling proxy (your apps connect here) |
 | **Pool** | Set of reusable connections to avoid creating new ones |
-| **Transaction Mode** | PgBouncer allocates new connection per transaction (most compatible) |
+| **Transaction Mode** | PgBouncer allocates a connection per transaction (most compatible) |
 
 ## Frequently Asked Questions
 
-**Q: Can I connect directly to the database?**  
-A: Yes! Either via PgBouncer (6432) or directly (5432). PgBouncer is recommended for applications.
+**Q: Can I connect directly to the database?**
+A: Yes — either via PgBouncer (:6432) or directly (:5432). PgBouncer is recommended for applications.
 
-**Q: What happens if a node crashes?**  
-A: Failover happens automatically. A replica becomes primary within <30 seconds. Your apps keep running (brief reconnect needed).
+**Q: What happens if a node crashes?**
+A: Failover happens automatically. A replica becomes primary within < 30 seconds. Your apps keep running (brief reconnect needed).
 
-**Q: Can I make backups?**  
-A: Yes! PostgreSQL is fully functional. Use `pg_dump` or configure continuous archiving (see [Operations](../guides/02-OPERATIONS.md)).
+**Q: Can I make backups?**
+A: Yes! Use `pg_dump` or configure continuous archiving (see [Operations](../guides/02-OPERATIONS.md)).
 
-**Q: Can I run other databases?**  
+**Q: Can I run other databases?**
 A: This is PostgreSQL only. You can create multiple databases on the cluster though.
 
-**Q: Is this secure?**  
-A: For development, yes. For production, review [Security Hardening](../reference/SECURITY.md).
+**Q: Is this secure?**
+A: Suitable for development as-is. For production, harden using the checklist in the Security section above.
 
-**Q: What if I need to scale?**  
-A: See [Configuration Reference](../reference/CONFIG-REFERENCE.md) for tuning options.
+**Q: What if I need to scale?**
+A: Edit `ha-test.tfvars` (pool sizes, replica count) and review `variables-ha.tf` for all tuning options.
 
 ---
 
 ## Ready to Go?
 
-You have two quick choices:
-
-1. **[Jump to Quick Start](01-QUICK-START.md)** - Deploy it now (5 min)
-2. **[Read Architecture](../architecture/ARCHITECTURE.md)** - Learn how it works (15 min)
+1. **[Jump to Quick Start](01-QUICK-START.md)** — Deploy it now (5 min)
+2. **[Read Architecture](../architecture/ARCHITECTURE.md)** — Learn how it works (15 min)
 
 Then check out [docs/README.md](../README.md) for the full documentation map.
 

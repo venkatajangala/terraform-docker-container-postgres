@@ -2,12 +2,12 @@
 
 **Production-ready PostgreSQL HA cluster with automatic failover, connection pooling, and high availability.**
 
-[![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)]()
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18.2-blue)]()
-[![Patroni](https://img.shields.io/badge/Patroni-3.3.8-blue)]()
-[![Docker](https://img.shields.io/badge/Docker-Compose-blue)]()
-[![Terraform](https://img.shields.io/badge/Terraform-IaC-blue)]()
-[![Secrets](https://img.shields.io/badge/Secrets-Infisical-purple)]()
+![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18.2-blue)
+![Patroni](https://img.shields.io/badge/Patroni-3.3.8-blue)
+![Docker](https://img.shields.io/badge/Docker-Compose-blue)
+![Terraform](https://img.shields.io/badge/Terraform-IaC-blue)
+![Secrets](https://img.shields.io/badge/Secrets-Infisical-purple)
 
 ## 🚀 Quick Start (5 Minutes)
 
@@ -34,10 +34,12 @@ unset PGPASSWORD
 ## 📚 Documentation
 
 **First time?** Start here:
+
 - **[Quick Start Guide](docs/getting-started/01-QUICK-START.md)** - 5-minute deployment
 - **[New User Guide](docs/getting-started/02-NEW-USER-GUIDE.md)** - Complete overview
 
 **More information:**
+
 - **[Full Documentation Index](docs/README.md)** - Complete navigation
 - **[Architecture](docs/architecture/ARCHITECTURE.md)** - System design
 - **[Operations Guide](docs/guides/02-OPERATIONS.md)** - Daily tasks
@@ -314,7 +316,7 @@ postgres_port_base         = 5432
 pgbouncer_external_port_base = 6432
 ```
 
-See [Configuration Reference](docs/reference/CONFIG-REFERENCE.md) for all options.
+See `variables-ha.tf` for the full list of configuration options, or edit `ha-test.tfvars` to override defaults.
 
 ## 🔐 Security
 
@@ -329,7 +331,7 @@ See [Configuration Reference](docs/reference/CONFIG-REFERENCE.md) for all option
 - [ ] Configure automated backups
 - [ ] Set up monitoring and alerts
 
-See [Security Hardening](docs/reference/SECURITY.md) for details.
+See the Security Boundaries section in [Architecture](docs/architecture/ARCHITECTURE.md) for a production hardening checklist.
 
 ## 📖 Documentation by Role
 
@@ -337,7 +339,7 @@ See [Security Hardening](docs/reference/SECURITY.md) for details.
 |------|-----------|
 | **New Team Member** | [New User Guide](docs/getting-started/02-NEW-USER-GUIDE.md) |
 | **Developer** | [Quick Start](docs/getting-started/01-QUICK-START.md) + [Operations](docs/guides/02-OPERATIONS.md) |
-| **DevOps/SRE** | [Architecture](docs/architecture/ARCHITECTURE.md) + [Configuration](docs/reference/CONFIG-REFERENCE.md) |
+| **DevOps/SRE** | [Architecture](docs/architecture/ARCHITECTURE.md) + `variables-ha.tf` |
 | **Secrets Management** | [Infisical Quick Start](docs/getting-started/INFISICAL-QUICKSTART.md) + [Integration Guide](docs/INFISICAL-INTEGRATION.md) |
 | **Troubleshooting** | [Troubleshooting Guide](docs/guides/03-TROUBLESHOOTING.md) |
 | **Advanced Users** | [Complete Documentation Index](docs/README.md) |
@@ -397,7 +399,7 @@ curl -s http://localhost:8008/leader | python3 -m json.tool
 ```
 
 ### Performance issues
-See [PgBouncer Tuning](docs/pgbouncer/02-PGBOUNCER-TUNING.md) or [Troubleshooting](docs/guides/03-TROUBLESHOOTING.md)
+See [PgBouncer Authentication](docs/pgbouncer/AUTHENTICATION.md) or [Troubleshooting](docs/guides/03-TROUBLESHOOTING.md)
 
 ## 🤝 Support & Resources
 
@@ -425,7 +427,7 @@ See [PgBouncer Tuning](docs/pgbouncer/02-PGBOUNCER-TUNING.md) or [Troubleshootin
 1. **Deploy**: Follow [Quick Start](docs/getting-started/01-QUICK-START.md) (5 min)
 2. **Learn**: Read [New User Guide](docs/getting-started/02-NEW-USER-GUIDE.md) (20 min)
 3. **Operate**: See [Operations Guide](docs/guides/02-OPERATIONS.md)
-4. **Scale**: Review [Configuration Reference](docs/reference/CONFIG-REFERENCE.md)
+4. **Scale**: Edit `ha-test.tfvars` — see `variables-ha.tf` for all options
 5. **Explore**: Check [Full Documentation](docs/README.md)
 
 **Ready?** Run:
