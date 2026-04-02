@@ -4,59 +4,35 @@ Complete technical architecture of the PostgreSQL HA cluster with PgBouncer.
 
 ## System Architecture
 
-```
-┌────────────────────────────────────────────────────────────────────┐
-│                        APPLICATION LAYER                            │
-│  (Your apps, scripts, dashboards, monitoring tools)                │
-└─────────────────────────┬──────────────────────────────────────────┘
-                          │
-                ┌─────────▼──────────┐
-                │   PgBouncer HA     │  ← Connection Pooling Layer
-                │ ┌────────┬────────┐│     Reduces connection overhead
-                │ │Bouncer-1│Bouncer-2││     Supports 1000s of clients
-                │ │ 6432   │ 6433  ││     Transaction-level pooling
-                │ └────────┴────────┘│
-                └─────────┬──────────┘
-                          │ (TCP 6432/6433)
-        ┌─────────────────┼────────────────┐
-        │                 │                │
-    ┌───▼───┐        ┌────▼────┐     ┌────▼────┐
-    │PG-Node-1(PRIMARY)│PG-Node-2│    │PG-Node-3│  ← PostgreSQL HA Cluster
-    │ Port:5432   │(REPLICA)   │    │(REPLICA)│     Synchronous replication
-    │ Patroni:8008│ 5433:8009  │    │ 5434:8010    Automatic failover
-    └────┬─────────┘────┬───────┘    └─────┬─────┘
-         │              │                  │
-         └──────────────┼──────────────────┘
-                        │ WAL Streaming & Replication
-                        │
-        ┌───────────────▼────────────────┐
-        │  etcd Cluster (Distributed)    │   ← Consensus Layer
-        │  Port: 2379/2380               │     Leader election
-        │  - Cluster state               │     Config management
-        │  - Leader record               │     Safe failover
-        │  - Member registry             │
-        └───────────────────────────────┘
-                        │
-        ┌───────────────▼────────────────┐
-        │  DBHub/Bytebase (Optional)      │   ← Web Management UI
-        │  Port: 9090                     │     Database browser
-        │  Schema viewer, query execution │     Migration support
-        └─────────────────────────────────┘
+```mermaid
+graph TD
+    APP["Application Layer<br/>(Apps · Scripts · Dashboards · Monitoring)"]
+    PGB1["PgBouncer-1<br/>:6432"]
+    PGB2["PgBouncer-2<br/>:6433"]
 
-        ┌───────────────────────────────────────────────────────┐
-        │  Secrets Management Layer                              │
-        │                                                        │
-        │  ┌──────────────────────┐   ┌──────────────────────┐  │
-        │  │ Infisical Server     │   │ infisical-redis       │  │
-        │  │ (infisical/infisical)│──▶│ Redis 7 Alpine        │  │
-        │  │ External: 8080→8020  │   │ Internal: 6379        │  │
-        │  └──────────┬───────────┘   └──────────────────────┘  │
-        │             │                                          │
-        │  ┌──────────▼───────────┐                             │
-        │  │ infisical-postgres   │                             │
-        │  │ Port: 5437           │                             │
-        │  └──────────────────────┘                             │
-        └───────────────────────────────────────────────────────┘
+    subgraph PGHA["PostgreSQL HA Cluster — Streaming Replication + Automatic Failover"]
+        PG1["pg-node-1 PRIMARY<br/>PostgreSQL :5432 · Patroni :8008"]
+        PG2["pg-node-2 REPLICA<br/>PostgreSQL :5433 · Patroni :8009"]
+        PG3["pg-node-3 REPLICA<br/>PostgreSQL :5434 · Patroni :8010"]
+    end
+
+    ETCD["etcd Cluster<br/>:2379 / :2380<br/>Leader election · Cluster state · Safe failover"]
+    DBHUB["DBHub / Bytebase (optional)<br/>:9090 — Web Management UI"]
+
+    subgraph SECRETS["Secrets Management Layer (optional)"]
+        INF["Infisical Server<br/>:8020"]
+        REDIS["infisical-redis<br/>Redis 7 · :6379"]
+        INFPG["infisical-postgres<br/>:5437"]
+    end
+
+    APP --> PGB1 & PGB2
+    PGB1 & PGB2 -->|"TCP 6432 / 6433 — transaction pooling"| PGHA
+    PG1 -->|"WAL streaming"| PG2 & PG3
+    PGHA <-->|"Leader election & health checks"| ETCD
+    ETCD -.-> DBHUB
+    INF --> REDIS & INFPG
+    PGHA -. "fetch secrets (optional)" .-> INF
+    PGB1 & PGB2 -. "fetch secrets (optional)" .-> INF
 ```
 
 ## Component Details
@@ -64,6 +40,7 @@ Complete technical architecture of the PostgreSQL HA cluster with PgBouncer.
 ### 1. PostgreSQL Cache (3 Nodes)
 
 #### Primary Node (pg-node-1)
+
 - **Port**: 5432 (PostgreSQL), 8008 (Patroni API)
 - **Role**: Accepts writes, replicates to replicas
 - **Database**: PostgreSQL 18.2
@@ -71,12 +48,14 @@ Complete technical architecture of the PostgreSQL HA cluster with PgBouncer.
 - **Status**: Elected via etcd consensus
 
 #### Replica Nodes (pg-node-2, pg-node-3)
+
 - **Ports**: 5433/5434 (PostgreSQL), 8009/8010 (Patroni API)
 - **Role**: Accept reads, replicate from primary
 - **Status**: Continuous streaming replication
 - **Promotion**: Can become primary if current primary fails
 
 #### Replication Details
+
 - **Type**: Synchronous stream replication
 - **Slots**: Replication slots for safe LSN tracking
 - **Connection**: Direct TCP between nodes
@@ -85,6 +64,7 @@ Complete technical architecture of the PostgreSQL HA cluster with PgBouncer.
 ### 2. Patroni Orchestration Layer
 
 #### What It Does
+
 - **Leader Election**: Elects primary via etcd quorum
 - **Health Checks**: Monitors all nodes every 10 seconds
 - **Configuration Management**: Stores config in etcd, applies to all nodes
@@ -92,316 +72,330 @@ Complete technical architecture of the PostgreSQL HA cluster with PgBouncer.
 - **API Server**: REST endpoint for status and commands
 
 #### How It Works
-```
-Patroni on each node:
-  ↓
-Connects to etcd every 10 seconds
-  ↓
-Reports own health via heartbeat
-  ↓
-Reads leader record from etcd
-  ↓
-If I'm the leader: Maintain leadership
-If I'm not:        Replicate from leader
-  ↓
-If leader dies:    Coordinate election via etcd
-  ↓
-etcd quorum decides:
-  - Who's next leader
-  - When to trigger failover
-  - Which replica promotes
+
+```mermaid
+flowchart TD
+    A["Patroni on each node starts"] --> B["Connect to etcd every 10 s"]
+    B --> C["Report own health via heartbeat"]
+    C --> D["Read leader record from etcd"]
+    D --> E{Am I the leader?}
+    E -->|Yes| F["Maintain leadership<br/>keep renewing lock in etcd"]
+    E -->|No| G["Replicate from leader<br/>streaming WAL"]
+    F & G --> H{Leader lock missing?}
+    H -->|No| B
+    H -->|Yes — leader died| I["Coordinate election via etcd quorum"]
+    I --> J["etcd decides:<br/>• Next leader (highest LSN)<br/>• Failover trigger<br/>• Which replica promotes"]
+    J --> A
 ```
 
 #### Failover Scenario
-```
-Time 0:00 - Primary healthy
-[pg-1 LEADER] ← pg-2 ← pg-3
 
-Time 0:15 - Primary network issue detected
-[pg-1 ???]     pg-2     pg-3
-             (detecting failure...)
+```mermaid
+sequenceDiagram
+    participant pg1 as pg-node-1
+    participant pg2 as pg-node-2
+    participant pg3 as pg-node-3
+    participant etcd as etcd
 
-Time 0:30 - Patroni on pg-2 wins election
-[pg-1 OFFLINE] [pg-2 NEW LEADER] ← pg-3
+    Note over pg1,etcd: T=0:00 — Healthy cluster
+    pg1->>pg2: WAL streaming
+    pg1->>pg3: WAL streaming
+    pg1->>etcd: heartbeat (LEADER)
 
-Time 0:45 - pg-1 comes back online, rejoins as replica
-[pg-1 REPLICA] ← [pg-2 LEADER] ← pg-3
+    Note over pg1: T=0:15 — pg-node-1 network issue ✗
+    pg1--xetcd: heartbeat missing
+    pg2->>etcd: detect leader lock expired
+    pg3->>etcd: detect leader lock expired
+
+    Note over pg2,etcd: T=0:30 — Election
+    pg2->>etcd: acquire leader lock (highest LSN)
+    etcd-->>pg2: NEW LEADER ✓
+    etcd-->>pg3: become follower
+    pg2->>pg3: WAL streaming (new primary)
+
+    Note over pg1,pg2: T=0:45 — pg-node-1 rejoins
+    pg1->>etcd: rejoin as replica
+    pg2->>pg1: WAL streaming
 ```
 
 ### 3. etcd Distributed Consensus
 
 #### Purpose
-```
-etcd stores:
-  /pg-ha-cluster/leader       → Which node is leader
-  /pg-ha-cluster/members/*    → All active members
-  /pg-ha-cluster/sync         → Sync state info
-  /pg-ha-cluster/config       → Cluster configuration
-  /pg-ha-cluster/optime       → Replication positions
+
+```mermaid
+graph TD
+    ROOT["/pg-ha-cluster/"] --> LEADER["leader<br/>→ which node is primary"]
+    ROOT --> MEMBERS["members/*<br/>→ all active cluster members"]
+    ROOT --> SYNC["sync<br/>→ replication state info"]
+    ROOT --> CONFIG["config<br/>→ cluster configuration"]
+    ROOT --> OPTIME["optime<br/>→ replication positions (LSN)"]
 ```
 
 #### How It Ensures Safety
+
 - **Quorum-based**: All changes require majority vote (2/3 nodes)
 - **Atomic**: Either all nodes agree or change doesn't happen
 - **Persistent**: Data survives container restarts
 - **Distributed**: No single point of failure
 
 #### Leader Election Algorithm
-```
-All Patroni nodes compete for leadership:
-  
-Conditions to win:
-  1. Has most recent WAL position
-  2. Can respond to health check
-  3. Has quorum agreement in etcd
-  
-Winner becomes leader, gets lock in etcd
-  
-Others become followers, replicate from leader
 
-If leader dies:
-  Its lock expires in etcd (30 second TTL)
-  Next-best candidate wins new election
-  Happens in < 30 seconds total
+```mermaid
+flowchart TD
+    A["All Patroni nodes compete for leadership"] --> B{"Conditions to win"}
+    B --> C["1. Has most recent WAL position (LSN)"]
+    B --> D["2. Can respond to health check"]
+    B --> E["3. Has quorum agreement in etcd"]
+    C & D & E --> F["Winner acquires leader lock in etcd"]
+    F --> G["Others become followers<br/>and replicate from new leader"]
+    G --> H{Leader lock expires?}
+    H -->|No — healthy| G
+    H -->|Yes — leader died<br/>30 s TTL| I["Next-best candidate wins<br/>new election in < 30 s total"]
+    I --> A
 ```
 
 ### 4. PgBouncer Connection Pooling
 
 #### Architecture
-```
-1000s of Client Connections
-        ↓
-    PgBouncer Proxy
-    (2 instances for HA)
-        ↓
-    Connection Pools
-    ├─ pg-node-1 pool (25 connections)
-    ├─ pg-node-2 pool (25 connections)
-    └─ pg-node-3 pool (25 connections)
-    Total: ~100 real database connections
-        ↓
-    PostgreSQL Backend
+
+```mermaid
+graph TD
+    C["1000s of Client Connections"]
+    PGB["PgBouncer Proxy<br/>(2 instances for HA)"]
+    P1["pg-node-1 pool<br/>25 connections"]
+    P2["pg-node-2 pool<br/>25 connections"]
+    P3["pg-node-3 pool<br/>25 connections"]
+    PG["PostgreSQL Backend<br/>~100 real connections total"]
+
+    C --> PGB
+    PGB --> P1 & P2 & P3
+    P1 & P2 & P3 --> PG
 ```
 
 #### How Connection Pooling Works
 
 **Without PgBouncer:**
-```
-Client 1 → PostgreSQL   (creates connection)
-Client 2 → PostgreSQL   (creates connection)
-Client 3 → PostgreSQL   (creates connection)
-...
-Client 1000 → PostgreSQL (creates 1000th connection!)
 
-Problem: PostgreSQL has overhead per connection
-        Memory per connection, file descriptor per connection, etc.
-        Can't handle 1000s of client connections efficiently
+```mermaid
+graph LR
+    C1["Client 1"] --> PG[("PostgreSQL")]
+    C2["Client 2"] --> PG
+    C3["Client 3"] --> PG
+    CN["Client 1000"] --> PG
+    note["Problem: 1000 individual connections<br/>Memory + file descriptor per connection<br/>Cannot scale efficiently"]
+    style PG fill:#f88,stroke:#c44
+    style note fill:#fff3f3,stroke:#f88
 ```
 
 **With PgBouncer:**
-```
-Client 1   ──┐
-Client 2   ──├→ PgBouncer → {reuses 25 connections} → PostgreSQL
-Client 3   ──┤             Multiplexing
-...          │
-Client 1000 ─┘
 
-Benefit: Only 25 backend connections instead of 1000
-        Huge memory and resource savings
-        Each database can support 1000s of clients
+```mermaid
+graph LR
+    C1["Client 1"] --> PGB["PgBouncer<br/>(multiplexing)"]
+    C2["Client 2"] --> PGB
+    C3["Client 3"] --> PGB
+    CN["Client 1000"] --> PGB
+    PGB -->|"25 reused connections"| PG[("PostgreSQL")]
+    note["Benefit: Only 25 backend connections<br/>Huge memory savings<br/>Thousands of clients supported"]
+    style PGB fill:#8c8,stroke:#484
+    style PG fill:#88f,stroke:#44c
+    style note fill:#f3fff3,stroke:#8c8
 ```
 
 #### Pool Modes
 
 **Transaction Mode (Current)** ✅
-```
-Per Transaction:
+
 1. Client connects to PgBouncer
-2. Sends query (SELECT/INSERT/UPDATE)
-3. Connection returned to pool
-4. Next client reuses same backend connection
+2. Sends query (SELECT / INSERT / UPDATE)
+3. Connection returned to pool after the transaction completes
+4. Next client reuses the same backend connection
 
-Pro: Maximum connection reuse, works with all apps
-Con: Slight overhead per transaction
-```
+- **Pro**: Maximum connection reuse, works with all apps
+- **Con**: Slight overhead per transaction
 
-**Session Mode**
-```
-Per Session:
+---
+
+#### Session Mode
+
 1. Client connects to PgBouncer
-2. Connection assigned from pool
-3. Connection stays assigned for entire session
-4. Session state preserved
+2. A connection is assigned from the pool
+3. Connection stays assigned for the entire session
+4. Session state is preserved
 
-Pro: Faster, lower per-query overhead
-Con: Can't reuse connections across sessions
-```
+- **Pro**: Faster, lower per-query overhead
+- **Con**: Cannot reuse connections across sessions
 
-**Statement Mode**
-```
-Per Statement:
-1. Each SQL statement gets dedicated connection
-2. Connection returned after query
+---
 
-Pro: Maximum connection reuse
-Con: Very limited compatibility, breaks many apps
-```
+#### Statement Mode
+
+1. Each SQL statement gets a dedicated connection
+2. Connection returned immediately after the query
+
+- **Pro**: Maximum connection reuse
+- **Con**: Very limited compatibility — breaks many applications
 
 ### 5. Network Topology
 
 #### Docker Network
-```
-Network Name: pg-ha-network
-Network Type: Docker bridge
-CIDR: 172.20.0.0/16
 
-Container IPs:
-  pg-node-1:    172.20.0.2
-  pg-node-2:    172.20.0.3
-  pg-node-3:    172.20.0.4
-  etcd:         172.20.0.5
-  pgbouncer-1:  172.20.0.6
-  pgbouncer-2:  172.20.0.7
-  dbhub:        172.20.0.8
+```mermaid
+graph TD
+    subgraph NET["pg-ha-network — Docker Bridge 172.20.0.0/16"]
+        PG1["pg-node-1<br/>172.20.0.2"]
+        PG2["pg-node-2<br/>172.20.0.3"]
+        PG3["pg-node-3<br/>172.20.0.4"]
+        ETCD["etcd<br/>172.20.0.5"]
+        PGB1["pgbouncer-1<br/>172.20.0.6"]
+        PGB2["pgbouncer-2<br/>172.20.0.7"]
+        DBHUB["dbhub<br/>172.20.0.8"]
+    end
 
-Host Access:
-  Port 5432 → pg-node-1 (PostgreSQL)
-  Port 5433 → pg-node-2 (PostgreSQL)
-  Port 5434 → pg-node-3 (PostgreSQL)
-  Port 6432 → pgbouncer-1 (PgBouncer)
-  Port 6433 → pgbouncer-2 (PgBouncer)
-  Port 8008 → pg-node-1 (Patroni API)
-  Port 8009 → pg-node-2 (Patroni API)
-  Port 8010 → pg-node-3 (Patroni API)
-  Port 2379 → etcd (API)
-  Port 9090 → dbhub (Web UI)
+    HOST["Host Machine"]
+    HOST -->|":5432"| PG1
+    HOST -->|":5433"| PG2
+    HOST -->|":5434"| PG3
+    HOST -->|":6432"| PGB1
+    HOST -->|":6433"| PGB2
+    HOST -->|":8008"| PG1
+    HOST -->|":8009"| PG2
+    HOST -->|":8010"| PG3
+    HOST -->|":2379"| ETCD
+    HOST -->|":9090"| DBHUB
 ```
 
 #### Connectivity Flow
-```
-Host Machine
-  ↓
-  ├→ localhost:6432 → Docker network → PgBouncer-1 → PostgreSQL nodes
-  ├→ localhost:5432 → Docker network → pg-node-1 (direct)
-  ├→ localhost:8008 → Docker network → Patroni API
-  └→ localhost:9090 → Docker network → DBHub web UI
 
-Between Containers (internal):
-  pgbouncer-1 ↔ pg-node-1/2/3 (TCP 5432)
-  Patroni ↔ etcd (TCP 2379)
-  pg-node → pg-node (TCP 5432 for replication)
+```mermaid
+graph LR
+    HOST["Host Machine"]
+    PGB1["PgBouncer-1"]
+    PG1D["pg-node-1 (direct)"]
+    PAT["Patroni API"]
+    DBH["DBHub Web UI"]
+    PG1["pg-node-1"]
+    PG2["pg-node-2"]
+    PG3["pg-node-3"]
+    ETCD["etcd"]
+
+    HOST -->|"localhost:6432"| PGB1
+    HOST -->|"localhost:5432"| PG1D
+    HOST -->|"localhost:8008"| PAT
+    HOST -->|"localhost:9090"| DBH
+    PGB1 -->|"TCP 5432"| PG1 & PG2 & PG3
+    PAT <-->|"TCP 2379"| ETCD
+    PG1 <-->|"TCP 5432 replication"| PG2 & PG3
 ```
 
 ## Data Flow Scenarios
 
 ### Scenario 1: Normal Write Operation
 
-```
-Application
-  ↓ INSERT/UPDATE
-PgBouncer
-  ↓ Transaction mode
-  (allocates connection from pool)
-  ↓
-PostgreSQL Primary (pg-node-1)
-  ↓ Writes to disk
-  ↓ Generates WAL
-  ↓ Sends WAL to replicas (stream replication)
-  ↓
-pg-node-2 (receives WAL)
-  ↓
-pg-node-3 (receives WAL)
-  ↓
-All nodes apply write
-  ↓
-Primary responds to PgBouncer
-  ↓
-PgBouncer returns result to application
-  ↓
-Connection returned to pool (ready for next query)
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant PGB as PgBouncer
+    participant PG1 as pg-node-1 (Primary)
+    participant PG2 as pg-node-2
+    participant PG3 as pg-node-3
+
+    App->>PGB: INSERT / UPDATE
+    Note over PGB: Allocates connection from pool (transaction mode)
+    PGB->>PG1: Forward write to primary
+    PG1->>PG1: Write to disk & generate WAL
+    PG1-->>PG2: Stream WAL (async replication)
+    PG1-->>PG3: Stream WAL (async replication)
+    PG2->>PG2: Apply WAL
+    PG3->>PG3: Apply WAL
+    PG1->>PGB: Result OK
+    PGB->>App: Result OK
+    Note over PGB: Connection returned to pool
 ```
 
 ### Scenario 2: Read Operation (via Replica)
 
-```
-Application
-  ↓ SELECT query (read-only)
-PgBouncer
-  ↓ Selects available backend connection from pool
-  ↓
-PostgreSQL Replica (pg-node-2 or pg-node-3)
-  ↓ Executes read-only query
-  ↓ Returns results
-  ↓
-PgBouncer returns to application
-  ↓
-Connection returned to pool
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant PGB as PgBouncer
+    participant REP as Replica (pg-node-2 or pg-node-3)
+
+    App->>PGB: SELECT (read-only)
+    Note over PGB: Selects available backend connection from pool
+    PGB->>REP: Route to replica
+    REP->>REP: Execute read-only query
+    REP->>PGB: Results
+    PGB->>App: Results
+    Note over PGB: Connection returned to pool
 ```
 
 ### Scenario 3: Failover Due to Primary Failure
 
-```
-Time 0:00 - Primary dies
-pg-node-1: OFFLINE ✗
-pg-node-2: HEALTHY
-pg-node-3: HEALTHY
+```mermaid
+sequenceDiagram
+    participant pg1 as pg-node-1
+    participant pg2 as pg-node-2
+    participant pg3 as pg-node-3
+    participant etcd as etcd
+    participant PGB as PgBouncer
 
-Time 0:05 - Patroni detects offline primary
-All Patroni instances notice:
-  - pg-node-1 not responding
-  - Heartbeat missing in etcd
-  - Try to acquire leader lock
+    Note over pg1,PGB: T=0:00 — Cluster healthy, pg-node-1 is primary
+    pg1-->>pg2: streaming replication
+    pg1-->>pg3: streaming replication
 
-Time 0:10 - etcd election happens
-etcd quorum votes:
-  pg-node-2: Highest LSN, wins election
-  pg-node-3: Becomes follower
-  pg-node-1: Stays offline
+    Note over pg1: T=0:00 — Primary dies ✗
+    pg1-xetcd: leader lock expires (no heartbeat)
 
-Time 0:30 - New primary elected and online
-pg-node-1: OFFLINE
-pg-node-2: NEW PRIMARY ✓
-pg-node-3: REPLICA
+    Note over pg2,etcd: T=0:05 — Failure detected
+    pg2->>etcd: pg-node-1 not responding — attempt leader lock
+    pg3->>etcd: pg-node-1 not responding — attempt leader lock
 
-PgBouncer discovers:
-  - Gets new leader from etcd or Patroni discovery
-  - Redirects connections to new primary (pg-node-2)
+    Note over pg2,etcd: T=0:10 — Election
+    etcd-->>pg2: NEW PRIMARY ✓ (highest LSN)
+    etcd-->>pg3: become follower
+    pg2-->>pg3: streaming replication (new primary)
 
-Time 1:00 - pg-node-1 comes back online
-pg-node-1: REJOINED (demoted to replica)
-pg-node-1: Starts catching up with pg-node-2
-pg-node-3: REPLICA
+    Note over pg2,PGB: T=0:30 — New primary online
+    pg2->>PGB: I am new primary
+    PGB->>pg2: redirect all write connections
 
-Result: Cluster healed, all 3 nodes operational again
+    Note over pg1,pg2: T=1:00 — pg-node-1 recovers
+    pg1->>etcd: rejoin as replica
+    pg2-->>pg1: streaming replication
+    Note over pg1,PGB: Cluster fully healed — all 3 nodes operational
 ```
 
 ## Resource Requirements
 
 ### Minimum (Development)
+
 - **CPU**: 2 cores
 - **RAM**: 4 GB
 - **Disk**: 10 GB
 - **Network**: 100 Mbps
 
 ### Recommended (Production)
+
 - **CPU**: 4+ cores
 - **RAM**: 16+ GB
 - **Disk**: 100+ GB (depends on data volume)
 - **Network**: 1 Gbps
 
 ### Per Container
-```
-PostgreSQL:   ~500 MB RAM + data size
-Patroni:      ~50 MB RAM
-PgBouncer:    ~200 MB RAM + pool buffers
-etcd:         ~100 MB RAM
-DBHub:        ~500 MB RAM
-```
+
+| Container | RAM Estimate |
+| --------- | ------------ |
+| PostgreSQL | ~500 MB + data size |
+| Patroni | ~50 MB |
+| PgBouncer | ~200 MB + pool buffers |
+| etcd | ~100 MB |
+| DBHub | ~500 MB |
 
 ## Failure Modes & Recovery
 
 | Failure | Detection | Recovery | Downtime |
-|---------|-----------|----------|----------|
+| ------- | --------- | -------- | -------- |
 | Primary PostgreSQL crashes | 10-30 sec | Replica promotes to primary | 30 sec |
 | Primary network partition | 10-30 sec | Replica promotes (majority vote) | 30 sec |
 | Single replica dies | Patroni notice | Remains offline until manual restart | 0 sec (reads go to other replica) |
@@ -412,93 +406,89 @@ DBHub:        ~500 MB RAM
 
 ## Security Boundaries
 
-```
-┌─────────────────────────────────────┐
-│      Host Machine (Trusted)          │
-├─┬───────────────────────────────────┤
-│ │ Docker Bridge Network (Isolated)   │
-│ │ 172.20.0.0/16                      │
-│ ├─ pg-node-1 ───────────────────────┤
-│ ├─ pg-node-2 ───────────────────────┤
-│ ├─ pg-node-3 ───────────────────────┤
-│ ├─ pgbouncer-1 ─────────────────────┤
-│ ├─ pgbouncer-2 ─────────────────────┤
-│ ├─ etcd ────────────────────────────┤
-│ └─ dbhub ──────────────────────────┘
-│
-│ Ports exposed to host:
-│ ├─ 6432/6433 (PgBouncer) - Database access
-│ ├─ 5432-5434 (PostgreSQL direct) - Direct access (if enabled)
-│ ├─ 8008-8010 (Patroni API) - Cluster API
-│ ├─ 2379 (etcd API) - Cluster management
-│ └─ 9090 (DBHub) - Web management
-│
-└─────────────────────────────────────┘
+```mermaid
+graph TD
+    EXT["External Clients<br/>(SCRAM-SHA-256 required)"]
 
-Default Authentication:
-  - pgbouncer/userlist.txt: Contains plain text passwords
-  - auth_type: SCRAM-SHA-256 (secure hash negotiation with PostgreSQL)
-  - No TLS: Internal network only (not suitable for remote access)
-  - Password authentication required via PGPASSWORD env var or connection string
+    subgraph HOST["Host Machine — Trusted Boundary"]
+        PORTS["Exposed Host Ports<br/>:6432 / :6433 → PgBouncer (DB access)<br/>:5432–:5434 → PostgreSQL direct<br/>:8008–:8010 → Patroni API<br/>:2379 → etcd API<br/>:9090 → DBHub Web UI"]
 
-For Production:
-  - Add TLS/SSL layer
-  - Enable PostgreSQL audit logging
-  - Restrict port exposure
-  - Use firewall rules
-  - Enable authentication from application
+        subgraph DOCKER["Docker Bridge Network · 172.20.0.0/16 (Isolated)"]
+            PG1["pg-node-1"] & PG2["pg-node-2"] & PG3["pg-node-3"]
+            PGB1["pgbouncer-1"] & PGB2["pgbouncer-2"]
+            ETCD["etcd"]
+            DBHUB["dbhub"]
+        end
+    end
+
+    EXT -->|"SCRAM-SHA-256"| PORTS
+    PORTS --> DOCKER
 ```
+
+### Default Authentication
+
+- `pgbouncer/userlist.txt` contains hashed passwords
+- `auth_type`: SCRAM-SHA-256 (secure hash negotiation with PostgreSQL)
+- No TLS: internal network only (not suitable for remote access without a TLS proxy)
+- Password authentication required via `PGPASSWORD` env var or connection string
+
+### For Production
+
+- Add TLS/SSL layer (e.g. stunnel, nginx TCP proxy)
+- Enable PostgreSQL audit logging (`pgaudit`)
+- Restrict port exposure with firewall rules
+- Enable application-level authentication
 
 ## Performance Characteristics
 
 ### Connection Overhead
+
 - **Direct PostgreSQL**: ~5-10ms per new connection
 - **PgBouncer pooled**: ~< 1ms (from pool)
 - **Network round-trip**: ~1-2ms typical
 
 ### Query Latency
+
 - **Simple query**: 1-5ms (network + execution)
 - **Complex query**: 50-500ms (depends on query)
 - **Connection from pool**: Saves ~10ms per query
 
 ### Throughput
-- **PgBouncer overhead**: <  5% of query time
+
+- **PgBouncer overhead**: < 5% of query time
 - **Replication lag**: < 100ms typical
 - **Failover time**: 20-30 seconds
 
 ## Scaling Considerations
 
 ### Scaling Out (More Replicas)
-```
-Currently: 1 Primary + 2 Replicas
 
-Can add: pg-node-4, pg-node-5, etc.
-Patroni will manage all automatically
-Replication happens to all replicas
+The current topology ships with 1 Primary + 2 Replicas. Additional replica nodes (pg-node-4, pg-node-5, …) can be added and Patroni will manage them automatically — replication is established to all replicas without manual configuration.
 
-Trade-off: More replicas = more WAL shipping overhead, but
-  - Better read distribution
-  - Better failover options
-  - Higher availability
-```
+**Trade-offs:**
+
+- More replicas = more WAL shipping overhead
+- Better read distribution across replicas
+- More failover candidates = higher availability
 
 ### Scaling Up (Larger Instances)
-```
-Increase container resource limits:
-  - More CPU → Faster query execution
-  - More RAM → Larger working set, fewer disk I/Os
-  - More disk → More data capacity
 
-Tuning PgBouncer:
-  - Increase default_pool_size for high concurrency
-  - Increase max_client_conn for many connections
-```
+Increase container resource limits in `variables-ha.tf`:
+
+- **More CPU** → faster query execution
+- **More RAM** → larger working set, fewer disk I/Os
+- **More disk** → more data capacity
+
+Tune PgBouncer for higher concurrency:
+
+- Increase `default_pool_size` for more simultaneous queries
+- Increase `max_client_conn` to accept more front-end connections
 
 ---
 
 ## Next Steps
 
-- **[Diagrams & Workflows](DIAGRAMS.md)** - Visual flowcharts
-- **[Operations](../guides/02-OPERATIONS.md)** - How to operate this
-- **[Configuration](../reference/CONFIG-REFERENCE.md)** - Tuning options
-- **[Troubleshooting](../guides/03-TROUBLESHOOTING.md)** - When things go wrong
+- **[Operations](../guides/02-OPERATIONS.md)** — How to operate this cluster
+- **[Troubleshooting](../guides/03-TROUBLESHOOTING.md)** — When things go wrong
+- **[Configuration](../../variables-ha.tf)** — All tuning knobs (`variables-ha.tf`)
+- **[Quick Start](../getting-started/01-QUICK-START.md)** — Deploy in 5 minutes
