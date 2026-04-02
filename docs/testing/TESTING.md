@@ -416,10 +416,10 @@ curl -s http://localhost:8010/health
 
 ## Next Steps
 
-1. **Production Deployment:** See [Security Hardening](../reference/SECURITY.md)
-2. **Performance Tuning:** See [PgBouncer Tuning](../pgbouncer/02-PGBOUNCER-TUNING.md)
-3. **Monitoring Setup:** See [Observability](../reference/OBSERVABILITY.md)
-4. **Backup Configuration:** See [Backup & Recovery](../guides/04-BACKUP.md)
+1. **Production Deployment:** Review the Security Boundaries section in [Architecture Overview](../architecture/ARCHITECTURE.md)
+2. **Performance Tuning:** See [PgBouncer Authentication](../pgbouncer/AUTHENTICATION.md) and tune `pgbouncer_default_pool_size` / `pgbouncer_max_client_conn` in `ha-test.tfvars`
+3. **Monitoring Setup:** See [Operations & Maintenance](../guides/02-OPERATIONS.md)
+4. **Troubleshooting:** See [Troubleshooting Guide](../guides/03-TROUBLESHOOTING.md)
 
 ---
 

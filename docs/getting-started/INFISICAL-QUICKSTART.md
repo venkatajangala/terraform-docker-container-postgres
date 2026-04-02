@@ -159,7 +159,7 @@ docker logs pg-node-1 | grep -i infisical
 | Patroni Node 1 | http://localhost:8008 | REST API (no auth) |
 | PostgreSQL Direct | localhost:5432 | pgadmin / {from generated_passwords} |
 | PgBouncer Pool | localhost:6432 | pgadmin / {from generated_passwords} |
-| etcd | localhost:12379 | API (no auth) |
+| etcd | localhost:2379 | API (no auth) |
 
 ## Managing Secrets
 
