@@ -39,7 +39,7 @@ Patroni API (node-2):  8009 (localhost)
 Patroni API (node-3):  8010 (localhost)
 etcd client:           2379 (localhost)
 etcd peer:             2380 (localhost)
-Infisical API:         8020 (localhost)
+Vault API:             8200 (localhost)
 DBHub (Bytebase):      9090 (localhost)
 ```
 
@@ -80,20 +80,25 @@ Successfully tagged pgbouncer:ha
 Image size: ~35MB (optimized from 145MB)
 ```
 
-#### Build Infisical Image
+#### Vault (Dev Raft) Image
+Use the official HashiCorp Vault image for dev or build a custom image if you need additional tools.
+
 ```bash
-docker build -f Dockerfile.infisical -t infisical/infisical:latest .
+# Option A: Use official Vault image (recommended for dev)
+docker pull vault:1.14.1
+
+# Option B: Build a custom Vault image (if you maintain a Dockerfile.vault)
+docker build -f Dockerfile.vault -t vault:custom .
 ```
 
 Expected output:
 ```
-Successfully tagged infisical/infisical:latest
-Image size: ~450MB (optimized from 741MB)
+Successfully pulled vault:1.14.1
 ```
 
 #### Verify Images
 ```bash
-docker images | grep -E "postgres-patroni|pgbouncer|infisical"
+docker images | grep -E "postgres-patroni|pgbouncer|vault"
 ```
 
 ### Step 3: Initialize Terraform
@@ -127,7 +132,7 @@ Key variables with defaults:
 - `etcd_port`: 2379
 - `pgbouncer_enabled`: true
 - `pgbouncer_replicas`: 2
-- `infisical_enabled`: true
+- `vault_enabled`: true
 - `pg_node_memory_mb`: 4096
 - `pgbouncer_memory_mb`: 256
 
@@ -144,7 +149,7 @@ pg_node_memory_mb          = 4096
 pgbouncer_replicas         = 2
 pgbouncer_max_client_conn  = 1000
 pgbouncer_pool_mode        = "transaction"
-infisical_enabled          = true
+vault_enabled             = true
 ```
 
 ### Step 6: Plan Deployment
@@ -179,7 +184,7 @@ Deployment process (~2-3 minutes):
 3. Start etcd container
 4. Start PostgreSQL nodes (Patroni)
 5. Start PgBouncer instances
-6. Start Infisical services
+6. Start Vault services (dev: Raft single-node or multi-node; prod: auto-unseal with KMS)
 7. Start DBHub
 
 ### Step 8: Verify Deployment
@@ -196,7 +201,7 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 # pgbouncer-1            Up 30s (health: healthy)       0.0.0.0:6432->6432/tcp
 # pgbouncer-2            Up 30s (health: healthy)       0.0.0.0:6433->6432/tcp
 # etcd                   Up 1 minute                    0.0.0.0:2379-2380->2379-2380/tcp
-# infisical              Up 1 minute (health: healthy)  0.0.0.0:8020->8080/tcp
+# vault                  Up 1 minute (health: healthy)  0.0.0.0:8200->8200/tcp
 ```
 
 ### Step 9: Get Terraform Outputs
@@ -227,7 +232,7 @@ Terraform automatically manages all environment variables. To use custom values:
 cat > terraform.tfvars <<EOF
 postgres_user = "myuser"
 postgres_password = "SecurePass123456789"
-infisical_enabled = true
+vault_enabled = true
 pgbouncer_replicas = 3
 pg_node_memory_mb = 8192
 EOF
@@ -477,8 +482,8 @@ docker logs pg-node-3 --tail=50
 # etcd logs
 docker logs etcd --tail=50
 
-# Infisical logs
-docker logs infisical --tail=50
+# Vault logs
+docker logs vault --tail=50
 
 # PgBouncer logs
 docker logs pgbouncer-1 --tail=50
@@ -761,8 +766,8 @@ docker image prune -a
 # Destroy only PgBouncer
 terraform destroy -target='docker_container.pgbouncer' -auto-approve
 
-# Destroy only Infisical services
-terraform destroy -target='docker_container.infisical' -target='docker_container.infisical_postgres' -auto-approve
+# Destroy only Vault services
+terraform destroy -target='docker_container.vault' -auto-approve  # destroy Vault dev container (if present)
 ```
 
 ---

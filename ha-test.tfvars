@@ -9,8 +9,8 @@ postgres_password     = "" // Leave empty to auto-generate, or set via env var
 postgres_db           = "postgres"
 replication_password  = "" // Leave empty to auto-generate, or set via env var
 dbhub_port            = 9090
-etcd_port             = 12379
-etcd_peer_port        = 12380
+etcd_port             = 2379
+etcd_peer_port        = 2380
 patroni_api_port_base = 8008
 
 // PgBouncer Configuration
@@ -23,15 +23,12 @@ pgbouncer_default_pool_size  = 25
 pgbouncer_min_pool_size      = 5
 pgbouncer_reserve_pool_size  = 5
 
-// Infisical Secrets Management Configuration (RECOMMENDED)
-// Passwords are automatically generated and securely stored by Infisical
-// Set API credentials via environment variables:
-//   export TF_VAR_infisical_api_key="<32-char-auto-generated-key>"
-//   export TF_VAR_infisical_project_id="your-project-id"
-infisical_enabled      = true
-infisical_port         = 8020
-infisical_db_port      = 5437
-infisical_environment  = "dev"
-generate_new_passwords = true
-password_length        = 32
+// Vault Secrets Management Configuration (DEV Raft)
+// Use Vault in dev mode with AppRole for container auth.
+vault_enabled          = true
+vault_port             = 8200
+vault_raft_nodes       = 1
+vault_root_token       = "dev-root-token"
+vault_agent_enabled    = true
+
 

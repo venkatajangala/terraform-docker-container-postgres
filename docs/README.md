@@ -15,11 +15,11 @@ Start here if you're new to this project:
 - **[Operations & Maintenance](guides/02-OPERATIONS.md)** — Day-to-day cluster operations
 - **[Troubleshooting](guides/03-TROUBLESHOOTING.md)** — Common issues and solutions
 
-## 🔐 Secrets Management (Infisical)
+## 🔐 Secrets Management (Vault)
 
-- **[Infisical Quick Start](getting-started/INFISICAL-QUICKSTART.md)** — Enable and verify in 5 minutes
-- **[Integration Guide](INFISICAL-INTEGRATION.md)** — Architecture and implementation details
-- **[Infisical Troubleshooting](guides/INFISICAL-TROUBLESHOOTING.md)** — Common secrets issues
+- **[Vault Quick Start](getting-started/Vault-QUICKSTART.md)** — Enable and verify in 5 minutes
+- **[Integration Guide](Vault-INTEGRATION.md)** — Architecture and implementation details
+- **[Vault Troubleshooting](guides/Vault-TROUBLESHOOTING.md)** — Common secrets issues
 
 ## 🔌 Connection Pooling (PgBouncer)
 
@@ -68,7 +68,7 @@ Start here if you're new to this project:
 
 1. Check [Troubleshooting](guides/03-TROUBLESHOOTING.md)
 2. Run diagnostic commands from [Operations Guide](guides/02-OPERATIONS.md)
-3. For secrets issues: [Infisical Troubleshooting](guides/INFISICAL-TROUBLESHOOTING.md)
+3. For secrets issues: [Vault Troubleshooting](guides/Vault-TROUBLESHOOTING.md)
 
 ## 📁 Current Documentation Structure
 
@@ -79,12 +79,12 @@ docs/
 ├── getting-started/
 │   ├── 01-QUICK-START.md             # 5-minute deployment
 │   ├── 02-NEW-USER-GUIDE.md          # Comprehensive introduction
-│   └── INFISICAL-QUICKSTART.md       # Secrets management quick start
+│   └── Vault-QUICKSTART.md       # Secrets management quick start
 │
 ├── guides/
 │   ├── 02-OPERATIONS.md              # Running & maintenance
 │   ├── 03-TROUBLESHOOTING.md         # Common issues & fixes
-│   └── INFISICAL-TROUBLESHOOTING.md  # Secrets-specific issues
+│   └── Vault-TROUBLESHOOTING.md  # Secrets-specific issues
 │
 ├── pgbouncer/
 │   └── AUTHENTICATION.md             # PgBouncer auth & userlist
@@ -95,7 +95,7 @@ docs/
 ├── architecture/
 │   └── ARCHITECTURE.md               # Full system architecture
 │
-└── INFISICAL-INTEGRATION.md          # Infisical architecture & implementation
+└── Vault-INTEGRATION.md          # Vault architecture & implementation
 ```
 
 ## 🔍 Quick Command Reference
@@ -127,7 +127,7 @@ PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 6432 -U pg
 - ✅ etcd distributed consensus
 - ✅ PgBouncer connection pooling (2 instances)
 - ✅ Liquibase schema migrations (HA-aware)
-- ✅ Infisical secrets management (optional)
+- ✅ Vault secrets management (optional)
 - ✅ pgvector support (1536-dim IVFFLAT)
 
 ---

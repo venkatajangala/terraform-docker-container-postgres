@@ -7,7 +7,7 @@
 ![Patroni](https://img.shields.io/badge/Patroni-3.3.8-blue)
 ![Docker](https://img.shields.io/badge/Docker-Compose-blue)
 ![Terraform](https://img.shields.io/badge/Terraform-IaC-blue)
-![Secrets](https://img.shields.io/badge/Secrets-Infisical-purple)
+![Secrets](https://img.shields.io/badge/Secrets-Vault%20%28HashiCorp%20Vault%29-blue)
 
 ## 🚀 Quick Start (5 Minutes)
 
@@ -18,7 +18,7 @@ terraform apply -var-file="ha-test.tfvars" -auto-approve
 sleep 150
 
 # Verify it's running
-docker ps | grep -E 'pg-node|pgbouncer|etcd|infisical'
+docker ps | grep -E 'pg-node|pgbouncer|etcd|vault'
 
 # Get generated passwords
 terraform output generated_passwords
@@ -85,12 +85,12 @@ unset PGPASSWORD
 - Schema browser
 - Query execution interface
 
-### ✅ Secrets Management (Infisical)
-- Secure password storage and encryption
-- Automated password generation and rotation
-- Zero-downtime credential updates
-- Multi-environment support (dev/staging/production)
-- Audit logging and compliance
+### ✅ Secrets Management (HashiCorp Vault)
+- Centralized KV v2 secret storage and versioned secrets
+- AppRole authentication for containers (recommended)
+- Support for automated rotation and dynamic secrets
+- Dev-friendly Raft mode; production auto-unseal options
+- Fine-grained policies and audit logging
 
 ## 📊 System Architecture
 
@@ -112,8 +112,7 @@ graph TD
 
     LB[Liquibase migrations\none-shot container] -->|session pool\npostgres_liquibase| PGB1
 
-    INFISICAL[Infisical\n:8020] --- IREDIS[infisical-redis\n:6379]
-    INFISICAL --- IPG[infisical-postgres\n:5437]
+    VAULT[Vault (HashiCorp Vault)\n:8200]
 
     style PG1 fill:#2e7d32,color:#fff
     style PG2 fill:#1565c0,color:#fff
@@ -194,27 +193,27 @@ unset PGPASSWORD
 PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 6432 -U pgadmin -d pgbouncer
 ```
 
-### Secrets Management (Infisical)
+### Secrets Management (Vault)
 
 ```bash
-# Access Infisical web UI
+# Access Vault web UI
 open http://localhost:8020
 
-# Check Infisical health
+# Check Vault health
 curl -s http://localhost:8020/api/status | python3 -m json.tool
 
-# View Infisical application logs
-docker logs infisical -f
+# View Vault application logs
+docker logs vault -f
 
 # Rotate passwords (trigger secret refresh in containers)
 docker restart pg-node-1
 docker restart pgbouncer-1
 
-# View PgBouncer credentials generated from Infisical
+# View PgBouncer credentials generated from Vault
 docker exec pgbouncer-1 cat /etc/pgbouncer/userlist.txt
 
 # Check PostgreSQL secret injection logs
-docker logs pg-node-1 | grep -i infisical
+docker logs pg-node-1 | grep -i vault
 ```
 
 ## 🧪 Testing
@@ -340,37 +339,39 @@ See the Security Boundaries section in [Architecture](docs/architecture/ARCHITEC
 | **New Team Member** | [New User Guide](docs/getting-started/02-NEW-USER-GUIDE.md) |
 | **Developer** | [Quick Start](docs/getting-started/01-QUICK-START.md) + [Operations](docs/guides/02-OPERATIONS.md) |
 | **DevOps/SRE** | [Architecture](docs/architecture/ARCHITECTURE.md) + `variables-ha.tf` |
-| **Secrets Management** | [Infisical Quick Start](docs/getting-started/INFISICAL-QUICKSTART.md) + [Integration Guide](docs/INFISICAL-INTEGRATION.md) |
+| **Secrets Management** | [Vault Quick Start](docs/getting-started/VAULT-QuickStart.md) + [Vault Integration Guide](docs/VAULT-INTEGRATION.md) |
 | **Troubleshooting** | [Troubleshooting Guide](docs/guides/03-TROUBLESHOOTING.md) |
 | **Advanced Users** | [Complete Documentation Index](docs/README.md) |
 
 ## 🔑 Secrets Management
 
-This stack includes **Infisical** for secure secrets management, running the official `infisical/infisical:latest` Docker Hub image backed by a dedicated PostgreSQL database and a Redis instance (`infisical-redis`).
+This stack integrates **HashiCorp Vault** for secrets management. The repository includes a dev-friendly Vault RAFT prototype (single-node RAFT) and helpers for AppRole authentication and KV v2 usage. For production, follow the recommended patterns (auto-unseal with KMS, Vault Agent/sidecar or injector).
 
 ✅ **Features**:
 
-- Automated password generation and rotation (via Terraform `random_password`)
-- Encrypted secret storage with audit logging
-- Zero-downtime secrets rotation for PostgreSQL, Patroni, and PgBouncer
-- Runtime injection of credentials into containers
-- RESTful API for programmatic access
-- Multi-environment support (dev/staging/production)
+- Centralized KV v2 secret storage and versioned secrets
+- AppRole authentication for containers (recommended)
+- Terraform-controlled seeding and sensitive outputs (dev only)
+- Support for dynamic secrets and rotation (via Vault DB plugins)
+- Audit logging and policy-based access control
 
-### Quick Start
+### Quick Start (Dev Vault RAFT)
 ```bash
-# Secrets are automatically managed by Infisical
-# Access the Infisical dashboard
-open http://localhost:8020
+# Start Terraform with vault_enabled=true
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+# Initialize and unseal dev Vault (bootstrap handles this in dev)
+# Verify Vault is reachable
+curl -s http://localhost:8200/v1/sys/health
 
-# Rotate a password without downtime
-docker restart pg-node-1  # Fetches fresh secrets from Infisical
+# AppRole JSON is written to .vault-bootstrap/approle_pg-role.json (dev only)
+# Containers read AppRole JSON from /etc/vault/approle_pg-role.json if mounted
 ```
 
+Note: Vault listens on port 8200 by default; ensure ha-test.tfvars uses vault_port = 8200 for consistency.
+
 📚 **Learn More**:
-- [Infisical Quick Start (5 min)](docs/getting-started/INFISICAL-QUICKSTART.md) - Deploy and verify
-- [Integration Guide (Technical)](docs/INFISICAL-INTEGRATION.md) - Architecture & implementation
-- [Troubleshooting](docs/guides/INFISICAL-TROUBLESHOOTING.md) - Common issues and solutions
+- [Vault Quick Start](docs/getting-started/VAULT-QuickStart.md) - Dev bootstrap and AppRole
+- [Vault Integration Guide](docs/VAULT-INTEGRATION.md) - Architecture & implementation
 
 ## 🚨 Troubleshooting
 
