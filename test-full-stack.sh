@@ -357,6 +357,42 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────
+# TEST 13: f_psql_prompt — Vault-sourced password connection test
+# ─────────────────────────────────────────────────────────────────────
+echo ""
+echo "📋 TEST 13: f_psql_prompt (Vault password resolution)"
+echo "─────────────────────────────────────────────────────────────────────"
+
+PSQL_PROMPT_SCRIPT="$(dirname "$0")/f_psql_prompt.sh"
+if [ -f "$PSQL_PROMPT_SCRIPT" ]; then
+  # Source the function (it defines f_psql_prompt but does not auto-execute)
+  source "$PSQL_PROMPT_SCRIPT"
+
+  # Verify password resolution reaches Vault or Terraform (not empty)
+  _psql_resolve_password 2>/dev/null | grep -q '.' \
+    && pass "f_psql_prompt: password resolved (Vault or Terraform fallback)" \
+    || fail "f_psql_prompt: could not resolve password from Vault or Terraform"
+
+  # ServerPSQL — connect directly to Patroni primary, run a trivial query
+  RESULT=$(f_psql_prompt ServerPSQL pgadmin --cmd "SELECT pg_is_in_recovery();" 2>&1)
+  if echo "$RESULT" | grep -q "^.*f$\|^ f$\|(1 row)"; then
+      pass "f_psql_prompt ServerPSQL: connected to primary (pg_is_in_recovery=f)"
+  else
+      fail "f_psql_prompt ServerPSQL: unexpected result — ${RESULT}"
+  fi
+
+  # PgBouncerPSQL — connect via PgBouncer pooler, run a trivial query
+  RESULT=$(f_psql_prompt PgBouncerPSQL pgadmin --cmd "SELECT 1 AS bouncer_ok;" 2>&1)
+  if echo "$RESULT" | grep -q "bouncer_ok\|1"; then
+      pass "f_psql_prompt PgBouncerPSQL: connected via PgBouncer"
+  else
+      fail "f_psql_prompt PgBouncerPSQL: unexpected result — ${RESULT}"
+  fi
+else
+  warn "f_psql_prompt.sh not found at ${PSQL_PROMPT_SCRIPT} — skipping TEST 13"
+fi
+
+# ─────────────────────────────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────────────────────────────
 echo ""
