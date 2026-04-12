@@ -98,24 +98,24 @@ unset PGPASSWORD
 graph TD
     APP[Applications / Clients]
 
-    APP --> PGB1[PgBouncer-1\n:6432]
-    APP --> PGB2[PgBouncer-2\n:6433]
+    APP --> PGB1[PgBouncer-1 :6432]
+    APP --> PGB2[PgBouncer-2 :6433]
 
-    PGB1 & PGB2 --> PG1[pg-node-1\nPrimary :5432]
-    PGB1 & PGB2 --> PG2[pg-node-2\nReplica :5433]
-    PGB1 & PGB2 --> PG3[pg-node-3\nReplica :5434]
+    PGB1 & PGB2 --> PG1[pg-node-1 PRIMARY :5432]
+    PGB1 & PGB2 --> PG2[pg-node-2 replica :5433]
+    PGB1 & PGB2 --> PG3[pg-node-3 replica :5434]
 
     PG1 -->|WAL streaming| PG2
     PG1 -->|WAL streaming| PG3
 
-    PG1 & PG2 & PG3 <-->|leader election| ETCD[etcd\n:2379]
+    PG1 & PG2 & PG3 <-->|leader election| ETCD[etcd :2379]
 
-    LB[Liquibase migrations\none-shot container] -->|session pool\npostgres_liquibase| PGB1
+    LB[Liquibase migrations] -->|postgres_liquibase pool| PGB1
 
-    subgraph SECRETS["Secrets — optional (vault_enabled)"]
-        VAULT[Vault\n:8200 Raft]
-        AGENT[vault-agent\nsidecar]
-        SVOL[(vault-agent-secrets\nshared volume)]
+    subgraph SECRETS["Secrets - optional"]
+        VAULT[Vault :8200 Raft]
+        AGENT[vault-agent sidecar]
+        SVOL[(vault-agent-secrets)]
     end
 
     AGENT -->|AppRole login| VAULT
