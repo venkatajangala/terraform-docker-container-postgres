@@ -1,6 +1,6 @@
 # Comprehensive Testing Guide
 
-Complete testing procedures for PostgreSQL HA Cluster with Liquibase, PgBouncer, and Infisical.
+Complete testing procedures for PostgreSQL HA Cluster with Liquibase, PgBouncer, and Vault.
 
 ---
 
@@ -12,7 +12,7 @@ Complete testing procedures for PostgreSQL HA Cluster with Liquibase, PgBouncer,
 4. [PostgreSQL Schema Tests](#postgresql-schema-tests)
 5. [HA Cluster Tests](#ha-cluster-tests)
 6. [PgBouncer Tests](#pgbouncer-tests)
-7. [Infisical Tests](#infisical-tests)
+7. [Vault Tests](#vault-tests)
 8. [Performance Tests](#performance-tests)
 9. [Failover & Recovery Tests](#failover--recovery-tests)
 10. [Test Reporting](#test-reporting)
@@ -107,7 +107,7 @@ time terraform apply -auto-approve \
 
 ```bash
 # Check all containers started
-docker ps -a | grep -E 'pg-node|pgbouncer|etcd|infisical|liquibase|dbhub'
+docker ps -a | grep -E 'pg-node|pgbouncer|etcd|vault|liquibase|dbhub'
 
 # Verify container counts
 RUNNING=$(docker ps --format "{{.Names}}" | wc -l)
@@ -119,14 +119,14 @@ echo "Total: $TOTAL"
 # Expected output format:
 # CONTAINER ID  IMAGE    COMMAND   CREATED   STATUS    PORTS    NAMES
 # [multiple rows for pg-node-1, pg-node-2, pg-node-3, pgbouncer-1, pgbouncer-2, 
-#  etcd, infisical, dbhub, liquibase-migrations]
+#  etcd, vault, dbhub, liquibase-migrations]
 ```
 
 **Expected Results**: 
 - ✓ 3 PostgreSQL nodes (pg-node-1,2,3)
 - ✓ 2 PgBouncer instances (pgbouncer-1,2)
 - ✓ etcd running
-- ✓ infisical running
+- ✓ vault running
 - ✓ dbhub (Bytebase) running
 - ✓ liquibase-migrations completed (exited status 0)
 
@@ -461,36 +461,36 @@ EOF
 
 ---
 
-## Infisical Tests
+## Vault Tests
 
-### 7.1 Infisical Connectivity
+### 7.1 Vault Connectivity
 
 ```bash
-# Check Infisical API
+# Check Vault API
 curl -s http://localhost:8020/api/status | python3 -m json.tool
 
 # Expected response: { "status": "ok" } or similar
 
-# Check Infisical logs
-docker logs infisical | tail -20
+# Check Vault logs
+docker logs vault | tail -20
 ```
 
 **Expected Results**:
 - ✓ HTTP 200 response
 - ✓ Status indicates operational
 
-### 7.2 Infisical Secrets Injection
+### 7.2 Vault Secrets Injection
 
 ```bash
-# Check PostgreSQL logs for Infisical integration
-docker logs pg-node-1 | grep -i infisical | tail -5
+# Check PostgreSQL logs for Vault integration
+docker logs pg-node-1 | grep -i vault | tail -5
 
 # Check if secrets were injected
 docker exec pg-node-1 env | grep -i postgres | head -3
 ```
 
 **Expected Results**:
-- ✓ Infisical integration logs appear
+- ✓ Vault integration logs appear
 - ✓ Environment variables set
 
 ### 7.3 Secret Rotation Test
@@ -721,7 +721,7 @@ EOF
 cat > /tmp/test-summary.txt << 'EOF'
 # Test Execution Summary
 Date: $(date)
-Deployment: PostgreSQL 18.2 + Patroni + Liquibase 5.0.1 + PgBouncer + Infisical
+Deployment: PostgreSQL 18.2 + Patroni + Liquibase 5.0.1 + PgBouncer + Vault
 
 ## Test Results
 - File Structure: PASS
@@ -730,7 +730,7 @@ Deployment: PostgreSQL 18.2 + Patroni + Liquibase 5.0.1 + PgBouncer + Infisical
 - Schema: PASS
 - HA Cluster: PASS
 - PgBouncer: PASS
-- Infisical: PASS
+- Vault: PASS
 - Performance: PASS
 - Failover: PASS
 
@@ -835,7 +835,7 @@ chmod +x run-all-tests.sh
 | Connection refused | PostgreSQL not ready | Wait 30-60s, check logs |
 | Replication lag high | Network issue | Verify network connectivity |
 | PgBouncer can't connect | Auth error | Check credentials from `terraform output` |
-| Infisical not responding | Service down | Check `docker logs infisical` |
+| Vault not responding | Service down | Check `docker logs vault` |
 | Failover takes too long | Patroni config | See Patroni documentation for tuning |
 
 ---

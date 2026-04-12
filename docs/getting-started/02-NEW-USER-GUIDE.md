@@ -262,7 +262,7 @@ Your project:
 - 🔒 Enable PostgreSQL audit logging
 - 🔒 Set up automated backups
 - 🔒 Configure monitoring and alerts
-- 🔒 Enable Infisical for secrets rotation (see [Infisical Quick Start](INFISICAL-QUICKSTART.md))
+- 🔒 Enable Vault for secrets rotation (see [Vault Quick Start](Vault-QUICKSTART.md))
 
 ## Your Next Steps (Choose One)
 

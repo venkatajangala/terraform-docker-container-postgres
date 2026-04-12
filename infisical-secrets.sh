@@ -1,51 +1,62 @@
 #!/bin/bash
-# Infisical Secret Fetching Utility Functions
+# Vault Secret Fetching Utility Functions
 # Source this file in your entrypoint scripts
 
-set -e
+set -euo pipefail
 
-# Global configuration
-INFISICAL_HOST="${INFISICAL_HOST:-http://infisical:8020}"
-INFISICAL_API_KEY="${INFISICAL_API_KEY}"
-INFISICAL_PROJECT_ID="${INFISICAL_PROJECT_ID}"
-INFISICAL_ENVIRONMENT="${INFISICAL_ENVIRONMENT:-dev}"
+# Global configuration with safe defaults
+Vault_ENABLED="${Vault_ENABLED:-false}"
+Vault_HOST="${Vault_HOST:-http://vault:8020}"
+Vault_API_KEY="${Vault_API_KEY:-}"
+Vault_PROJECT_ID="${Vault_PROJECT_ID:-}"
+Vault_ENVIRONMENT="${Vault_ENVIRONMENT:-dev}"
 MAX_RETRIES=5
 RETRY_DELAY=2
 
+# If Vault is disabled, define no-op fallback functions so sourcing this file is safe
+if [ "${Vault_ENABLED}" != "true" ]; then
+  echo "Vault disabled via Vault_ENABLED=${Vault_ENABLED}" >&2
+  fetch_secret_from_vault() { echo "ERROR: Vault disabled" >&2; return 1; }
+  fetch_secret_safe() { echo "$2"; return 0; }
+  verify_vault_connection() { return 1; }
+  list_secrets() { echo "[]"; return 0; }
+  create_secret_in_vault() { echo "ERROR: Vault disabled" >&2; return 1; }
+fi
+
 # ============================================================================
-# Function: fetch_secret_from_infisical
-# Description: Fetches a secret value from Infisical API with retry logic
+# Function: fetch_secret_from_vault
+# Description: Fetches a secret value from Vault API with retry logic
 # Arguments:
 #   $1 - Secret key/name
 # Returns:
 #   Secret value on success, exits with error on failure
 # ============================================================================
-fetch_secret_from_infisical() {
+fetch_secret_from_vault() {
   local secret_key=$1
   
-  if [ -z "$INFISICAL_API_KEY" ]; then
-    echo "ERROR: INFISICAL_API_KEY not set" >&2
+  if [ -z "$Vault_API_KEY" ]; then
+    echo "ERROR: Vault_API_KEY not set" >&2
     return 1
   fi
   
-  if [ -z "$INFISICAL_PROJECT_ID" ]; then
-    echo "ERROR: INFISICAL_PROJECT_ID not set" >&2
+  if [ -z "$Vault_PROJECT_ID" ]; then
+    echo "ERROR: Vault_PROJECT_ID not set" >&2
     return 1
   fi
   
-  echo "Fetching secret from Infisical: $secret_key" >&2
+  echo "Fetching secret from Vault: $secret_key" >&2
   
   local attempt=1
   while [ $attempt -le $MAX_RETRIES ]; do
     local response
     local http_code
     
-    # Fetch secret from Infisical API
+    # Fetch secret from Vault API
     response=$(curl -s -w "\n%{http_code}" -X GET \
-      "${INFISICAL_HOST}/api/v1/secrets/${secret_key}" \
-      -H "Authorization: Bearer ${INFISICAL_API_KEY}" \
-      -H "X-Infisical-Project-ID: ${INFISICAL_PROJECT_ID}" \
-      -H "X-Infisical-Environment: ${INFISICAL_ENVIRONMENT}" \
+      "${Vault_HOST}/api/v1/secrets/${secret_key}" \
+      -H "Authorization: Bearer ${Vault_API_KEY}" \
+      -H "X-Vault-Project-ID: ${Vault_PROJECT_ID}" \
+      -H "X-Vault-Environment: ${Vault_ENVIRONMENT}" \
       2>/dev/null)
     
     http_code=$(echo "$response" | tail -n1)
@@ -61,10 +72,10 @@ fetch_secret_from_infisical() {
       fi
       return 0
     elif [ "$http_code" = "401" ]; then
-      echo "ERROR: Unauthorized - Check INFISICAL_API_KEY" >&2
+      echo "ERROR: Unauthorized - Check Vault_API_KEY" >&2
       return 1
     elif [ "$http_code" = "404" ]; then
-      echo "ERROR: Secret '$secret_key' not found in Infisical" >&2
+      echo "ERROR: Secret '$secret_key' not found in Vault" >&2
       return 1
     else
       echo "Attempt $attempt/$MAX_RETRIES: HTTP $http_code, retrying in ${RETRY_DELAY}s..." >&2
@@ -91,7 +102,7 @@ fetch_secret_safe() {
   local fallback_value=$2
   
   local secret_value
-  secret_value=$(fetch_secret_from_infisical "$secret_key" 2>/dev/null) || {
+  secret_value=$(fetch_secret_from_vault "$secret_key" 2>/dev/null) || {
     echo "WARNING: Failed to fetch '$secret_key', using fallback value" >&2
     echo "$fallback_value"
     return 0
@@ -101,74 +112,74 @@ fetch_secret_safe() {
 }
 
 # ============================================================================
-# Function: verify_infisical_connection
-# Description: Verifies connectivity to Infisical service
+# Function: verify_vault_connection
+# Description: Verifies connectivity to Vault service
 # Returns:
 #   0 if connected, 1 if not
 # ============================================================================
-verify_infisical_connection() {
-  echo "Verifying Infisical connectivity..." >&2
+verify_vault_connection() {
+  echo "Verifying Vault connectivity..." >&2
   
   local response
-  response=$(curl -s -X GET "${INFISICAL_HOST}/api/status" 2>/dev/null) || {
-    echo "ERROR: Cannot connect to Infisical at ${INFISICAL_HOST}" >&2
+  response=$(curl -s -X GET "${Vault_HOST}/api/status" 2>/dev/null) || {
+    echo "ERROR: Cannot connect to Vault at ${Vault_HOST}" >&2
     return 1
   }
   
   if echo "$response" | grep -q "ok\|healthy"; then
-    echo "Infisical is reachable and healthy" >&2
+    echo "Vault is reachable and healthy" >&2
     return 0
   else
-    echo "ERROR: Infisical returned unhealthy status" >&2
+    echo "ERROR: Vault returned unhealthy status" >&2
     return 1
   fi
 }
 
 # ============================================================================
 # Function: list_secrets
-# Description: Lists all available secrets in Infisical project
+# Description: Lists all available secrets in Vault project
 # Returns:
 #   JSON array of secrets
 # ============================================================================
 list_secrets() {
-  if [ -z "$INFISICAL_API_KEY" ] || [ -z "$INFISICAL_PROJECT_ID" ]; then
-    echo "ERROR: INFISICAL_API_KEY and INFISICAL_PROJECT_ID must be set" >&2
+  if [ -z "$Vault_API_KEY" ] || [ -z "$Vault_PROJECT_ID" ]; then
+    echo "ERROR: Vault_API_KEY and Vault_PROJECT_ID must be set" >&2
     return 1
   fi
   
   curl -s -X GET \
-    "${INFISICAL_HOST}/api/v1/secrets" \
-    -H "Authorization: Bearer ${INFISICAL_API_KEY}" \
-    -H "X-Infisical-Project-ID: ${INFISICAL_PROJECT_ID}" \
-    -H "X-Infisical-Environment: ${INFISICAL_ENVIRONMENT}"
+    "${Vault_HOST}/api/v1/secrets" \
+    -H "Authorization: Bearer ${Vault_API_KEY}" \
+    -H "X-Vault-Project-ID: ${Vault_PROJECT_ID}" \
+    -H "X-Vault-Environment: ${Vault_ENVIRONMENT}"
 }
 
 # ============================================================================
-# Function: create_secret_in_infisical
-# Description: Creates or updates a secret in Infisical
+# Function: create_secret_in_vault
+# Description: Creates or updates a secret in Vault
 # Arguments:
 #   $1 - Secret key/name
 #   $2 - Secret value
 # Returns:
 #   0 on success, 1 on failure
 # ============================================================================
-create_secret_in_infisical() {
+create_secret_in_vault() {
   local secret_key=$1
   local secret_value=$2
   
-  if [ -z "$INFISICAL_API_KEY" ] || [ -z "$INFISICAL_PROJECT_ID" ]; then
-    echo "ERROR: INFISICAL_API_KEY and INFISICAL_PROJECT_ID must be set" >&2
+  if [ -z "$Vault_API_KEY" ] || [ -z "$Vault_PROJECT_ID" ]; then
+    echo "ERROR: Vault_API_KEY and Vault_PROJECT_ID must be set" >&2
     return 1
   fi
   
-  echo "Creating/updating secret in Infisical: $secret_key" >&2
+  echo "Creating/updating secret in Vault: $secret_key" >&2
   
   local response
   response=$(curl -s -w "\n%{http_code}" -X POST \
-    "${INFISICAL_HOST}/api/v1/secrets" \
-    -H "Authorization: Bearer ${INFISICAL_API_KEY}" \
-    -H "X-Infisical-Project-ID: ${INFISICAL_PROJECT_ID}" \
-    -H "X-Infisical-Environment: ${INFISICAL_ENVIRONMENT}" \
+    "${Vault_HOST}/api/v1/secrets" \
+    -H "Authorization: Bearer ${Vault_API_KEY}" \
+    -H "X-Vault-Project-ID: ${Vault_PROJECT_ID}" \
+    -H "X-Vault-Environment: ${Vault_ENVIRONMENT}" \
     -H "Content-Type: application/json" \
     -d "{\"key\": \"${secret_key}\", \"value\": \"${secret_value}\"}" \
     2>/dev/null)
@@ -207,4 +218,4 @@ generate_secure_password() {
   fi
 }
 
-echo "Infisical secret utilities loaded successfully" >&2
+echo "Vault secret utilities loaded successfully" >&2

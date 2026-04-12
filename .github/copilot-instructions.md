@@ -8,7 +8,7 @@ This file helps Copilot and other AI assistants work effectively in this reposit
 - 3-node Patroni cluster (1 primary + 2 replicas) with etcd consensus
 - PgBouncer connection pooling (2 instances, transaction mode)
 - Liquibase schema migrations (HA-aware)
-- Optional Infisical secrets management
+- Optional Vault secrets management
 - pgvector extension for AI/ML embeddings
 
 ## Build, Test, and Deploy Commands
@@ -37,7 +37,7 @@ terraform destroy -var-file="ha-test.tfvars" -auto-approve
 bash test-comprehensive.sh       # Validates all components
 
 # Full stack test with health checks
-bash test-full-stack.sh         # Tests cluster + PgBouncer + Infisical
+bash test-full-stack.sh         # Tests cluster + PgBouncer + Vault
 
 # Liquibase-specific tests
 bash test-liquibase.sh          # Validates migrations + changelog
@@ -80,9 +80,9 @@ liquibase --changeLogFile="liquibase/changelog/db.changelog-master.yml" rollback
 ## High-Level Architecture
 
 ### Infrastructure as Code (Terraform)
-- **main-ha.tf** — Core infrastructure: Docker network, etcd, 3 PostgreSQL nodes, 2 PgBouncer instances, optional Infisical stack
+- **main-ha.tf** — Core infrastructure: Docker network, etcd, 3 PostgreSQL nodes, 2 PgBouncer instances, optional Vault stack
 - **main-liquibase.tf** — One-shot Liquibase container that waits for primary election
-- **main-infisical.tf** — Infisical stack (secrets server + its own PostgreSQL + Redis)
+- **main-vault.tf** — Vault stack (secrets server + its own PostgreSQL + Redis)
 - **variables-ha.tf** — All tunable parameters: passwords, pool sizes, memory limits, feature flags
 - **outputs-ha.tf** — Connection strings, endpoints, generated credentials
 
@@ -104,18 +104,18 @@ Liquibase — one-shot container (runs after primary elected)
 
 All containers share `pg-ha-network` (Docker bridge, `172.18.0.0/16`).
 
-**Optional: Infisical Stack**
-- Infisical server (:8020) — secrets management
-- Infisical's own PostgreSQL (:5437) — secrets store
-- Redis (:6379) — Infisical cache
+**Optional: Vault Stack**
+- Vault server (:8020) — secrets management
+- Vault's own PostgreSQL (:5437) — secrets store
+- Redis (:6379) — Vault cache
 
 ### Shell Script Roles
 | Script | Purpose |
 |--------|---------|
-| `entrypoint-patroni.sh` | Bootstrap each node: fetch secrets from Infisical (if enabled), wait for etcd, start Patroni |
-| `entrypoint-pgbouncer.sh` | Generate `pgbouncer.ini` dynamically, create userlist, optionally fetch credentials from Infisical |
+| `entrypoint-patroni.sh` | Bootstrap each node: fetch secrets from Vault (if enabled), wait for etcd, start Patroni |
+| `entrypoint-pgbouncer.sh` | Generate `pgbouncer.ini` dynamically, create userlist, optionally fetch credentials from Vault |
 | `liquibase-entrypoint.sh` | Poll `pg_isready` on primary via `postgres_liquibase` pool, check `pg_is_in_recovery()`, then run migrations |
-| `infisical-secrets.sh` | Library functions: `fetch_secret_from_infisical()`, `create_secret_in_infisical()` |
+| `vault-secrets.sh` | Library functions: `fetch_secret_from_vault()`, `create_secret_in_vault()` |
 | `pgbouncer-health-check.sh` | Connectivity checks for all PostgreSQL nodes (nc -z) |
 
 ### Liquibase Changelog Structure
@@ -135,15 +135,15 @@ All changesets include rollback blocks; use `rollback-count N` to revert.
 ### Feature Flags (Toggle Without Editing Resources)
 Located in `variables-ha.tf`. Set via `ha-test.tfvars` or `-var` flags:
 - `liquibase_enabled` — Deploy Liquibase container?
-- `infisical_enabled` — Deploy Infisical secrets stack?
+- `vault_enabled` — Deploy Vault secrets stack?
 - `pgbouncer_enabled` — Deploy PgBouncer?
 - `pgbouncer_replicas` — Number of PgBouncer instances
 
-**Example**: `terraform apply -var="infisical_enabled=false" -var-file="ha-test.tfvars"`
+**Example**: `terraform apply -var="vault_enabled=false" -var-file="ha-test.tfvars"`
 
 ### Secrets Flow
-- **When Infisical disabled**: Terraform generates passwords via `random_password` resources, passes as env vars to containers
-- **When Infisical enabled**: Containers fetch/rotate credentials via Infisical HTTP API at startup (`infisical-secrets.sh` library)
+- **When Vault disabled**: Terraform generates passwords via `random_password` resources, passes as env vars to containers
+- **When Vault enabled**: Containers fetch/rotate credentials via Vault HTTP API at startup (`vault-secrets.sh` library)
 - Password generation uses `override_special = "!_-+"` (excludes shell/JDBC/URL-breaking chars)
 
 ### Liquibase HA Awareness
@@ -181,7 +181,7 @@ This prevents migrations from running on replicas or before cluster stability.
 - Node hostnames: `pg-node-1`, `pg-node-2`, `pg-node-3` (Patroni uses DNS)
 - PgBouncer: `pgbouncer-1`, `pgbouncer-2`
 - etcd: `etcd`
-- Infisical (if enabled): `infisical` (plus `infisical-postgres`, `infisical-redis`)
+- Vault (if enabled): `vault` (plus `vault-postgres`, `vault-redis`)
 
 ### Liquibase YAML Format Requirements
 Liquibase 5.x requires:
@@ -261,8 +261,8 @@ psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT * FROM databasechang
 
 ### Toggling Features
 ```bash
-# Disable Infisical (already running cluster)
-terraform apply -var="infisical_enabled=false" -var-file="ha-test.tfvars" -auto-approve
+# Disable Vault (already running cluster)
+terraform apply -var="vault_enabled=false" -var-file="ha-test.tfvars" -auto-approve
 
 # Add a third PgBouncer instance
 terraform apply -var="pgbouncer_replicas=3" -var-file="ha-test.tfvars" -auto-approve
@@ -307,6 +307,6 @@ psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT * FROM databasechang
 2. **Container startup times**: Patroni leader election takes ~2–3 minutes. Don't verify cluster health immediately after `terraform apply`.
 3. **Secrets sensitivity**: Password variables are marked sensitive; their values won't appear in logs/output unless explicitly requested.
 4. **Feature interactions**: Disabling `liquibase_enabled` doesn't remove the migration container immediately; it just won't create it on next apply.
-5. **Infisical optional**: The stack works fully without Infisical (secrets passed as env vars). Infisical enables rotation and centralized management.
+5. **Vault optional**: The stack works fully without Vault (secrets passed as env vars). Vault enables rotation and centralized management.
 6. **Port allocation**: Check `variables-ha.tf` for default port assignments; they're tunable but affect connection strings.
 7. **Docker network**: All containers use the shared `pg-ha-network`; can't access external services without explicit networking configuration.

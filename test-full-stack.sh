@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Comprehensive Test Suite for PostgreSQL HA + PgBouncer + Infisical Stack
+# Comprehensive Test Suite for PostgreSQL HA + PgBouncer + Vault Stack
 
 echo "╔════════════════════════════════════════════════════════════════════╗"
-echo "║   PostgreSQL HA + PgBouncer + Infisical Comprehensive Test Suite   ║"
+echo "║   PostgreSQL HA + PgBouncer + Vault Comprehensive Test Suite   ║"
 echo "╚════════════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -57,12 +57,16 @@ echo "ℹ️  Using pg user: $PG_USER"
 echo ""
 
 # ─────────────────────────────────────────────────────────────────────
-# TEST 1: Container Status (includes Infisical stack)
+# TEST 1: Container Status (includes Vault stack)
 # ─────────────────────────────────────────────────────────────────────
 echo "📋 TEST 1: Container Status"
 echo "─────────────────────────────────────────────────────────────────────"
 
-for container in pg-node-1 pg-node-2 pg-node-3 etcd pgbouncer-1 pgbouncer-2 dbhub infisical infisical-postgres infisical-redis; do
+containers=(pg-node-1 pg-node-2 pg-node-3 etcd pgbouncer-1 pgbouncer-2 dbhub)
+if [ "${Vault_ENABLED:-false}" = "true" ]; then
+  containers+=(vault vault-postgres vault-redis)
+fi
+for container in "${containers[@]}"; do
     if docker ps --format '{{.Names}}' | grep -q "^${container}$"; then
         pass "Container $container is running"
     else
@@ -234,19 +238,20 @@ if [ -n "$PRIMARY" ]; then
     done
 
     TEST_TABLE="test_replication_$(date +%s)"
-    docker exec "$PRIMARY" psql -U "$PG_USER" -d "$PG_DB" \
+    # Use postgres superuser for DDL to ensure permissions
+    docker exec "$PRIMARY" psql -U postgres -d "$PG_DB" \
         -c "CREATE TABLE $TEST_TABLE (id SERIAL PRIMARY KEY, val TEXT);" > /dev/null 2>&1
-    docker exec "$PRIMARY" psql -U "$PG_USER" -d "$PG_DB" \
+    docker exec "$PRIMARY" psql -U postgres -d "$PG_DB" \
         -c "INSERT INTO $TEST_TABLE (val) VALUES ('replication_ok');" > /dev/null 2>&1
 
     sleep 2
 
     if [ -n "$REPLICA" ]; then
-        REPLICA_DATA=$(docker exec "$REPLICA" psql -U "$PG_USER" -d "$PG_DB" -t \
+        REPLICA_DATA=$(docker exec "$REPLICA" psql -U postgres -d "$PG_DB" -t \
             -c "SELECT val FROM $TEST_TABLE LIMIT 1;" 2>/dev/null | tr -d ' \n')
         if [ "$REPLICA_DATA" = "replication_ok" ]; then
             pass "Data replicated from $PRIMARY to $REPLICA"
-            docker exec "$PRIMARY" psql -U "$PG_USER" -d "$PG_DB" \
+            docker exec "$PRIMARY" psql -U postgres -d "$PG_DB" \
                 -c "DROP TABLE $TEST_TABLE;" > /dev/null 2>&1
         else
             fail "Replication test failed (got: '${REPLICA_DATA}')"
@@ -295,30 +300,34 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────
-# TEST 11: Infisical Health Check
+# TEST 11: Vault Health Check
 # ─────────────────────────────────────────────────────────────────────
 echo ""
-echo "📋 TEST 11: Infisical Secrets Manager Health"
+echo "📋 TEST 11: Vault Secrets Manager Health"
 echo "─────────────────────────────────────────────────────────────────────"
 
-INFISICAL_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8020/api/status 2>/dev/null)
-if [ "$INFISICAL_STATUS" = "200" ]; then
-    pass "Infisical API is healthy (HTTP $INFISICAL_STATUS)"
-else
-    fail "Infisical API returned HTTP ${INFISICAL_STATUS:-no response}"
-fi
+if [ "${Vault_ENABLED:-false}" = "true" ]; then
+  Vault_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8020/api/status 2>/dev/null)
+  if [ "$Vault_STATUS" = "200" ]; then
+      pass "Vault API is healthy (HTTP $Vault_STATUS)"
+  else
+      fail "Vault API returned HTTP ${Vault_STATUS:-no response}"
+  fi
 
-for svc in infisical infisical-postgres infisical-redis; do
-    health=$(docker inspect "$svc" --format '{{.State.Health.Status}}' 2>/dev/null)
-    if [ "$health" = "healthy" ]; then
-        pass "$svc is healthy"
-    elif docker ps --format '{{.Names}}' | grep -q "^${svc}$"; then
-        warn "$svc is running but health status: ${health:-no healthcheck}"
-        ((PASS_COUNT++))
-    else
-        fail "$svc is not running"
-    fi
-done
+  for svc in vault vault-postgres vault-redis; do
+      health=$(docker inspect "$svc" --format '{{.State.Health.Status}}' 2>/dev/null)
+      if [ "$health" = "healthy" ]; then
+          pass "$svc is healthy"
+      elif docker ps --format '{{.Names}}' | grep -q "^${svc}$"; then
+          warn "$svc is running but health status: ${health:-no healthcheck}"
+          ((PASS_COUNT++))
+      else
+          fail "$svc is not running"
+      fi
+  done
+else
+  echo "Skipping Vault checks (Vault_ENABLED != true)"
+fi
 
 # ─────────────────────────────────────────────────────────────────────
 # TEST 12: Connection Performance Test

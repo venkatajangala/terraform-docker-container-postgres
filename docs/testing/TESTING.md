@@ -1,12 +1,12 @@
 # 🧪 Testing Guide
 
-Comprehensive testing procedures and validation for PostgreSQL HA + PgBouncer + Infisical infrastructure.
+Comprehensive testing procedures and validation for PostgreSQL HA + PgBouncer + Vault infrastructure.
 
 ## Quick Test (5 minutes)
 
 ```bash
 # 1. Verify all 10 containers running
-docker ps | grep -E 'pg-node|pgbouncer|etcd|infisical|dbhub'
+docker ps | grep -E 'pg-node|pgbouncer|etcd|vault|dbhub'
 
 # 2. Run the full automated test suite (12 tests, 35 assertions)
 bash test-full-stack.sh
@@ -14,7 +14,7 @@ bash test-full-stack.sh
 # 3. Check cluster health
 curl -s http://localhost:8008 | python3 -m json.tool
 
-# 4. Check Infisical health
+# 4. Check Vault health
 curl -s http://localhost:8020/api/status | python3 -m json.tool
 ```
 

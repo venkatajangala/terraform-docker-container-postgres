@@ -20,9 +20,9 @@ graph TD
     DBHUB["DBHub / Bytebase (optional)<br/>:9090 — Web Management UI"]
 
     subgraph SECRETS["Secrets Management Layer (optional)"]
-        INF["Infisical Server<br/>:8020"]
-        REDIS["infisical-redis<br/>Redis 7 · :6379"]
-        INFPG["infisical-postgres<br/>:5437"]
+        INF["Vault Server<br/>:8020"]
+        REDIS["vault-redis<br/>Redis 7 · :6379"]
+        INFPG["vault-postgres<br/>:5437"]
     end
 
     APP --> PGB1 & PGB2
