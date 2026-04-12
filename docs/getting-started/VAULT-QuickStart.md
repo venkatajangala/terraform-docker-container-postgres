@@ -85,8 +85,8 @@ REPLICATION_PASSWORD=<generated>
 # Health check
 curl -s http://localhost:8200/v1/sys/health | python3 -m json.tool
 
-# Read a seeded secret using the root token
-VAULT_TOKEN=$(cat .vault-bootstrap/dev_root_token)
+# Read a seeded secret using the root token (token is dev-root-token by default)
+VAULT_TOKEN=$(terraform output -raw vault_root_token 2>/dev/null || echo "dev-root-token")
 curl -s -H "X-Vault-Token: $VAULT_TOKEN" \
   http://localhost:8200/v1/secret/data/pg/postgres | python3 -m json.tool
 ```

@@ -13,38 +13,47 @@ output "pg_nodes" {
   description = "PostgreSQL node container names"
 }
 
+output "generated_passwords" {
+  description = "Auto-generated passwords for the PostgreSQL cluster (sensitive)"
+  sensitive   = true
+  value = {
+    postgres_password    = local.postgres_password
+    replication_password = local.replication_password
+  }
+}
+
 output "pg_primary_endpoint" {
-  value       = "postgresql://${var.postgres_user}:${var.postgres_password}@localhost:5432/${var.postgres_db}"
+  value       = "postgresql://${var.postgres_user}:${local.postgres_password}@localhost:5432/${var.postgres_db}"
   sensitive   = true
   description = "PostgreSQL primary endpoint (auto-elected by Patroni)"
 }
 
 output "pg_replica_1_endpoint" {
-  value       = "postgresql://${var.postgres_user}:${var.postgres_password}@localhost:5433/${var.postgres_db}"
+  value       = "postgresql://${var.postgres_user}:${local.postgres_password}@localhost:5433/${var.postgres_db}"
   sensitive   = true
   description = "PostgreSQL replica 1 endpoint (read-only)"
 }
 
 output "pg_replica_2_endpoint" {
-  value       = "postgresql://${var.postgres_user}:${var.postgres_password}@localhost:5434/${var.postgres_db}"
+  value       = "postgresql://${var.postgres_user}:${local.postgres_password}@localhost:5434/${var.postgres_db}"
   sensitive   = true
   description = "PostgreSQL replica 2 endpoint (read-only)"
 }
 
 output "pg_internal_primary" {
-  value       = "postgresql://${var.postgres_user}:${var.postgres_password}@pg-node-1:5432/${var.postgres_db}?sslmode=disable"
+  value       = "postgresql://${var.postgres_user}:${local.postgres_password}@pg-node-1:5432/${var.postgres_db}?sslmode=disable"
   sensitive   = true
   description = "PostgreSQL primary endpoint (internal - from containers)"
 }
 
 output "pg_internal_replica_1" {
-  value       = "postgresql://${var.postgres_user}:${var.postgres_password}@pg-node-2:5432/${var.postgres_db}?sslmode=disable"
+  value       = "postgresql://${var.postgres_user}:${local.postgres_password}@pg-node-2:5432/${var.postgres_db}?sslmode=disable"
   sensitive   = true
   description = "PostgreSQL replica 1 endpoint (internal - from containers)"
 }
 
 output "pg_internal_replica_2" {
-  value       = "postgresql://${var.postgres_user}:${var.postgres_password}@pg-node-3:5432/${var.postgres_db}?sslmode=disable"
+  value       = "postgresql://${var.postgres_user}:${local.postgres_password}@pg-node-3:5432/${var.postgres_db}?sslmode=disable"
   sensitive   = true
   description = "PostgreSQL replica 2 endpoint (internal - from containers)"
 }
@@ -107,7 +116,7 @@ output "pgbouncer_replicas" {
 }
 
 output "pgbouncer_primary_endpoint" {
-  value       = var.pgbouncer_enabled ? "postgresql://${var.postgres_user}:${var.postgres_password}@localhost:${var.pgbouncer_external_port_base}/${var.postgres_db}" : null
+  value       = var.pgbouncer_enabled ? "postgresql://${var.postgres_user}:${local.postgres_password}@localhost:${var.pgbouncer_external_port_base}/${var.postgres_db}" : null
   sensitive   = true
   description = "PgBouncer primary pooling endpoint (external)"
 }

@@ -94,7 +94,7 @@ See [VAULT-AGENT-SIDECAR.md](VAULT-AGENT-SIDECAR.md) for the full sidecar design
 `vault-bootstrap.sh` runs inside the Vault container during `terraform apply`:
 
 1. Initializes Vault (single unseal key, dev convenience)
-2. Writes root token to `.vault-bootstrap/dev_root_token`
+2. Uses root token from `vault_root_token` in `ha-test.tfvars` (default: `dev-root-token`)
 3. Enables KV v2 at `secret/`
 4. Creates `pg-role` policy
 5. Enables AppRole; generates role_id + secret_id

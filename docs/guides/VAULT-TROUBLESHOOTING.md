@@ -105,7 +105,7 @@ ls .vault-bootstrap/role_id .vault-bootstrap/secret_id
 
 AppRole secret IDs have a TTL. Regenerate:
 ```bash
-VAULT_TOKEN=$(cat .vault-bootstrap/dev_root_token)
+VAULT_TOKEN=$(terraform output -raw vault_root_token 2>/dev/null || echo "dev-root-token")
 curl -s -X POST -H "X-Vault-Token: $VAULT_TOKEN" \
   http://localhost:8200/v1/auth/approle/role/pg-role/secret-id | python3 -m json.tool
 
@@ -115,7 +115,7 @@ curl -s -X POST -H "X-Vault-Token: $VAULT_TOKEN" \
 #### D. Policy too restrictive
 
 ```bash
-VAULT_TOKEN=$(cat .vault-bootstrap/dev_root_token)
+VAULT_TOKEN=$(terraform output -raw vault_root_token 2>/dev/null || echo "dev-root-token")
 # Verify policy grants read on the KV paths
 curl -s -H "X-Vault-Token: $VAULT_TOKEN" \
   http://localhost:8200/v1/sys/policy/pg-role | python3 -m json.tool
@@ -213,7 +213,7 @@ docker network connect pg-ha-network vault
 **Rotate DB passwords (manual):**
 
 ```bash
-VAULT_TOKEN=$(cat .vault-bootstrap/dev_root_token)
+VAULT_TOKEN=$(terraform output -raw vault_root_token 2>/dev/null || echo "dev-root-token")
 NEW_PW=$(openssl rand -base64 24)
 
 # Write new password to Vault
@@ -252,7 +252,7 @@ echo -e "\n=== Cluster Health ==="
 curl -s http://localhost:8008/leader | python3 -m json.tool
 
 echo -e "\n=== PgBouncer Pools ==="
-PGPASSWORD="$(terraform output -raw generated_passwords 2>/dev/null)" \
+PGPASSWORD="$(terraform output -json generated_passwords 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['postgres_password'])")" \
   psql -h localhost -p 6432 -U pgadmin -d pgbouncer -c "SHOW POOLS;" 2>/dev/null || echo "FAILED"
 ```
 
