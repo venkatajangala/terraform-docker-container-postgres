@@ -309,6 +309,78 @@ docker logs pgbouncer-1 2>&1 | grep -i "FATAL" | tail -5
 
 ---
 
+## Test Suite: Vault Integration
+
+Vault runs in **Raft server mode** (`hashicorp/vault:1.17.3`). On first deploy `vault-bootstrap.sh` initialises Vault, unseals it, creates an AppRole, and seeds KV v2 secrets. Subsequent restarts re-unseal from `.vault-bootstrap/vault-init.json`.
+
+### Test 18: Vault Health
+
+```bash
+curl -s http://localhost:8200/v1/sys/health | python3 -c "
+import sys, json; d = json.load(sys.stdin)
+print('initialized:', d['initialized'])
+print('sealed:', d['sealed'])
+print('version:', d['version'])
+"
+```
+**Expected:** `initialized: True`, `sealed: False`, `version: 1.17.3`
+
+---
+
+### Test 19: Bootstrap Files Present
+
+```bash
+ls -la .vault-bootstrap/vault-init.json .vault-bootstrap/role_id .vault-bootstrap/secret_id
+```
+**Expected:** All three files exist (vault-init.json chmod 600).
+
+---
+
+### Test 20: AppRole Authentication
+
+```bash
+ROLE_ID=$(cat .vault-bootstrap/role_id)
+SECRET_ID=$(cat .vault-bootstrap/secret_id)
+curl -sf -X POST \
+  -d "{\"role_id\":\"$ROLE_ID\",\"secret_id\":\"$SECRET_ID\"}" \
+  http://localhost:8200/v1/auth/approle/login | python3 -c "
+import sys, json; d = json.load(sys.stdin)
+print('token acquired:', len(d['auth']['client_token']) > 0)
+"
+```
+**Expected:** `token acquired: True`
+
+---
+
+### Test 21: KV Secrets Seeded and Readable
+
+```bash
+VAULT_TOKEN=$(jq -r '.root_token' .vault-bootstrap/vault-init.json)
+curl -sf -H "X-Vault-Token: $VAULT_TOKEN" \
+  http://localhost:8200/v1/secret/data/pg/postgres | python3 -c "
+import sys, json
+d = json.load(sys.stdin)['data']['data']
+print('postgres_user:', d['postgres_user'])
+print('password set:', len(d['postgres_password']) > 0)
+"
+```
+**Expected:** `postgres_user: pgadmin`, `password set: True`
+
+---
+
+### Test 22: Vault Agent Rendered Secrets
+
+```bash
+# Secrets must be rendered in all pg-node and pgbouncer containers
+for c in pg-node-1 pg-node-2 pg-node-3 pgbouncer-1 pgbouncer-2; do
+  echo -n "$c: "
+  docker exec "$c" sh -c 'test -f /etc/vault/secrets/postgres.env && echo OK || echo MISSING'
+done
+```
+**Expected:** All containers: `OK`
+
+---
+
 ## Test Results Summary
 
 | Test | Category | Status | Notes |
@@ -319,6 +391,7 @@ docker logs pgbouncer-1 2>&1 | grep -i "FATAL" | tail -5
 | Test 10-11 | Failover | ✅ PASSED | Pending manual validation |
 | Test 12-13 | Data Consistency | ✅ PASSED | Pending manual validation |
 | Test 14-17 | Configuration | ✅ PASSED | Auth config updated |
+| Test 18-22 | Vault Integration | ✅ PASSED | Server mode, AppRole, KV v2 |
 
 **Overall Status:** ✅ **PRODUCTION READY**
 

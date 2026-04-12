@@ -17,18 +17,43 @@ resource "docker_volume" "vault_data" {
   name  = "vault-data"
 }
 
+resource "null_resource" "vault_data_perms" {
+  count = var.vault_enabled ? 1 : 0
+
+  triggers = {
+    # Use volume id (not name) so this reruns whenever the volume is recreated.
+    # The name "vault-data" never changes; the id changes on every create.
+    volume_id = docker_volume.vault_data[0].id
+  }
+
+  # The vault process runs as uid=100 (vault user). The Docker volume root is
+  # owned by root by default, causing "permission denied" on the Raft db file.
+  provisioner "local-exec" {
+    command = "docker run --rm -v vault-data:/vault/data alpine sh -c 'chown -R 100:1000 /vault/data && chmod 750 /vault/data'"
+  }
+
+  depends_on = [docker_volume.vault_data]
+}
+
 resource "docker_container" "vault" {
   count   = var.vault_enabled ? 1 : 0
   name    = "vault"
   image   = docker_image.vault[0].image_id
   restart = "unless-stopped"
 
-  # Run in server mode with the Raft config.
-  # No VAULT_DEV_ROOT_TOKEN_ID — dev mode is disabled.
-  command = ["server", "-config=/vault/config/vault.hcl"]
+  # The hashicorp/vault entrypoint always prepends -config=/vault/config (the
+  # full directory) to the vault server args.  Passing an explicit
+  # -config=/vault/config/vault.hcl would make vault load vault.hcl TWICE —
+  # two identical listeners → "address already in use".  Pass only "server" so
+  # the entrypoint loads the config directory once.
+  # VAULT_DEV_ROOT_TOKEN_ID is intentionally absent — dev mode is disabled.
+  command = ["server"]
 
   env = [
-    "VAULT_ADDR=http://127.0.0.1:${var.vault_port}"
+    "VAULT_ADDR=http://127.0.0.1:${var.vault_port}",
+    # Suppress the harmless "Could not chown /vault/config" warning that fires
+    # because the config bind-mount is read-only.
+    "SKIP_CHOWN=true"
   ]
 
   # Vault API port
@@ -62,17 +87,18 @@ resource "docker_container" "vault" {
     name = docker_network.pg_ha_network.name
   }
 
-  # Health check: vault CLI is available in the image; wget is used here
-  # because curl is not present.
-  # ?uninitok=true&sealedok=true → the API returns HTTP 200 while the server
-  # is starting up (not yet initialised or still sealed), so Docker reports
-  # the container healthy as soon as the listener is up.
+  depends_on = [null_resource.vault_data_perms]
+
+  # Health check: use the vault CLI bundled in the image.
+  # `vault status` exit codes: 0 = active, 1 = unreachable (error), 2 = sealed/uninitialized.
+  # We accept exit 2 — the process is up and serving the API, just not yet unsealed.
+  # Only exit 1 (listener not reachable) is treated as unhealthy.
   healthcheck {
-    test     = ["CMD-SHELL", "wget -q -O /dev/null 'http://127.0.0.1:${var.vault_port}/v1/sys/health?uninitok=true&sealedok=true'"]
-    interval = "10s"
-    timeout  = "5s"
-    retries  = 5
-    start_period = "10s"
+    test         = ["CMD-SHELL", "VAULT_ADDR=http://127.0.0.1:${var.vault_port} vault status 2>&1; ret=$?; [ $ret -eq 0 ] || [ $ret -eq 2 ]"]
+    interval     = "10s"
+    timeout      = "5s"
+    retries      = 5
+    start_period = "15s"
   }
 
   log_driver = "json-file"

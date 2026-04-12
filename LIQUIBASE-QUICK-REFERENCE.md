@@ -145,19 +145,7 @@ EOF
 
 ## Files Overview
 
-| File | Purpose |
-|------|---------|
-| `Dockerfile.liquibase` | Build Liquibase image with PostgreSQL driver |
-| `liquibase-entrypoint.sh` | Wait for DB readiness, execute migrations |
-| `main-liquibase.tf` | Terraform resource definitions |
-| `variables-ha.tf` | Added Liquibase variables (liquibase_enabled, memory, retries) |
-| `liquibase/liquibase.properties` | Liquibase configuration |
-| `liquibase/changelog/db.changelog-master.yml` | Master changelog includes |
-| `liquibase/changelog/01-init-schema.yml` | Audit schema + trigger function |
-| `liquibase/changelog/02-add-extensions.yml` | pgvector, pg_stat_statements, pgcrypto, uuid-ossp |
-| `liquibase/changelog/03-create-tables.yml` | Users, items, sessions tables with audit triggers |
-| `LIQUIBASE-INTEGRATION.md` | Detailed documentation |
-| `verify-liquibase.sh` | Deployment verification script |
+See [LIQUIBASE-INTEGRATION.md](LIQUIBASE-INTEGRATION.md#file-structure) for the complete, up-to-date file listing.
 
 ## Environment Variables
 

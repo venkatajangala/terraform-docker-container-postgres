@@ -6,8 +6,10 @@ set -e
 
 VAULT_ADDR="${VAULT_ADDR:-http://vault:8200}"
 VAULT_TOKEN="${VAULT_TOKEN:-}"
-MAX_RETRIES=5
-RETRY_DELAY=2
+# Use :-5 so that callers (liquibase-entrypoint.sh) can set their own MAX_RETRIES
+# via environment variable without being overridden when this file is sourced.
+MAX_RETRIES="${MAX_RETRIES:-5}"
+RETRY_DELAY="${RETRY_DELAY:-2}"
 
 # Internal helper: perform Vault HTTP GET with retries
 _vault_get() {

@@ -442,51 +442,12 @@ terraform destroy -target=docker_image.liquibase[0]
 
 ## Troubleshooting
 
-### Issue: Container Exits Immediately
+See [LIQUIBASE-INTEGRATION.md — Troubleshooting](LIQUIBASE-INTEGRATION.md#troubleshooting) for the full troubleshooting guide including container exit debugging, connection failure resolution, and partial migration recovery steps.
 
-**Symptom**: `docker ps -a` shows `liquibase-migrations` with status `Exited`
-
-**Debug**:
+**Quick first-step:**
 ```bash
 docker logs liquibase-migrations | tail -50
 ```
-
-**Common Causes**:
-- PostgreSQL not ready: Wait 30-60s
-- Connection refused: Verify DB credentials in environment
-- Changelog not found: Check `liquibase/changelog/` directory
-
-### Issue: "Could not connect to PostgreSQL"
-
-**Debug**:
-```bash
-# Test connectivity from container
-docker exec liquibase-migrations \
-  pg_isready -h pg-node-1 -p 5432 -U postgres
-
-# Test with explicit password
-docker exec liquibase-migrations bash << 'EOF'
-psql -h pg-node-1 -p 5432 -U postgres -d postgres \
-  -c "SELECT version();"
-EOF
-```
-
-### Issue: Partial Migration Failure
-
-**Debug**:
-```bash
-# Check failed changesets
-psql -h localhost -p 5432 -U pgadmin -d postgres << 'EOF'
-SELECT id, dateexecuted, execstatus, description 
-FROM public.databasechangelog 
-WHERE execstatus = 'failed';
-EOF
-```
-
-**Resolution**:
-1. Review the failed changeset SQL
-2. Fix the migration file
-3. Either manually revert and retry, or contact database team
 
 ## Documentation
 

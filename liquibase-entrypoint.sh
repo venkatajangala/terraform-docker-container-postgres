@@ -69,12 +69,16 @@ if command -v verify_vault_connection >/dev/null 2>&1; then
   fi
 
   if verify_vault_connection 2>/dev/null; then
-    DB_PASSWORD=$(fetch_secret_field "pg/postgres" "postgres_password" 2>/dev/null) || true
-    if [ -n "$DB_PASSWORD" ]; then
+    # Fetch into a local var so we never clobber DB_PASSWORD with an empty string
+    # if the secret path doesn't exist yet (race with vault-bootstrap.sh).
+    _vault_pw=$(fetch_secret_field "pg/postgres" "postgres_password" 2>/dev/null) || true
+    if [ -n "$_vault_pw" ]; then
+      DB_PASSWORD="$_vault_pw"
       LIQUIBASE_PASSWORD="$DB_PASSWORD"
-      export LIQUIBASE_PASSWORD
+      export DB_PASSWORD LIQUIBASE_PASSWORD
       echo "Fetched Liquibase DB password from Vault"
     fi
+    unset _vault_pw
   fi
 fi
 

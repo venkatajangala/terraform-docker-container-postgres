@@ -13,7 +13,7 @@ Controlled by feature flag: `vault_agent_enabled = true` in `ha-test.tfvars`.
 ```mermaid
 graph TD
     BS[".vault-bootstrap/<br/>role_id + secret_id"]
-    VA["vault-agent container<br/>(hashicorp/vault:1.13.3)"]
+    VA["vault-agent container<br/>(hashicorp/vault:1.17.3)"]
     V["Vault :8200"]
     VOL["vault-agent-secrets volume<br/>/etc/vault/secrets/postgres.env"]
     PG["pg-node-1/2/3<br/>(read-only mount)"]
@@ -93,7 +93,7 @@ The KV paths match what `vault-bootstrap.sh` seeds during `terraform apply`.
 ```hcl
 resource "docker_image" "vault_agent" {
   count = var.vault_agent_enabled ? 1 : 0
-  name  = "hashicorp/vault:1.13.3"
+  name  = "hashicorp/vault:1.17.3"
 }
 
 resource "docker_volume" "vault_agent_secrets" {

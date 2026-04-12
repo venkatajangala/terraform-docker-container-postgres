@@ -10,7 +10,7 @@ HashiCorp Vault is integrated as an **optional** secrets management layer for th
 
 | Property | Value |
 | -------- | ----- |
-| Image | `hashicorp/vault:1.13.3` |
+| Image | `hashicorp/vault:1.17.3` |
 | Port | `8200` (configurable via `vault_port`) |
 | Storage backend | Raft (built-in, no external DB or Redis required) |
 | Auth method | AppRole |

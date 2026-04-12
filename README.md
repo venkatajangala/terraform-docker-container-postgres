@@ -86,10 +86,11 @@ unset PGPASSWORD
 - Query execution interface
 
 ### ✅ Secrets Management (HashiCorp Vault)
-- Centralized KV v2 secret storage and versioned secrets
-- AppRole authentication for containers (recommended)
-- Support for automated rotation and dynamic secrets
-- Dev-friendly Raft mode; production auto-unseal options
+
+- Centralized KV v2 secret storage with versioned secrets
+- AppRole authentication for containers (role_id + secret_id)
+- Raft integrated storage — data persists across container restarts
+- Initialised and unsealed automatically by `vault-bootstrap.sh` on first deploy
 - Fine-grained policies and audit logging
 
 ## 📊 System Architecture
@@ -277,12 +278,18 @@ docker start pg-node-1
 │   └── reference/                   # Technical reference
 │
 ├── Terraform files                  ← Infrastructure as code
-│   ├── main-ha.tf
+│   ├── main-ha.tf                   # Core infra: network, etcd, pg nodes, pgbouncer
+│   ├── main-vault.tf                # Vault server container + volume + perms
+│   ├── main-vault-init.tf           # vault-bootstrap.sh trigger (null_resource)
+│   ├── main-vault-agent.tf          # Vault Agent sidecar + shared secrets volume
+│   ├── main-liquibase.tf            # Liquibase one-shot migrations container
 │   ├── variables-ha.tf
 │   ├── outputs-ha.tf
 │   └── ha-test.tfvars
 │
 ├── Configuration files
+│   ├── vault/config/                # Vault server config (Raft server mode)
+│   │   └── vault.hcl
 │   ├── pgbouncer/                   # PgBouncer config
 │   │   ├── pgbouncer.ini
 │   │   └── userlist.txt
@@ -295,6 +302,10 @@ docker start pg-node-1
 ├── Docker files
 │   ├── Dockerfile.patroni           # PostgreSQL + Patroni image
 │   └── Dockerfile.pgbouncer         # PgBouncer image
+│
+├── Secrets bootstrap
+│   ├── vault-bootstrap.sh           # Init, unseal, AppRole, KV seed
+│   └── vault-bootstrap-split.sh     # Splits approle JSON → role_id / secret_id files
 │
 └── Utilities
     ├── test-full-stack.sh           # Automated test suite
@@ -426,7 +437,7 @@ See [PgBouncer Authentication](docs/pgbouncer/AUTHENTICATION.md) or [Troubleshoo
 - Terraform IaC fully validated
 - Deploy with confidence
 
-**Last Updated**: 2026-03-07  
+**Last Updated**: 2026-04-12  
 **Version**: PostgreSQL 18.2 + Patroni 3.3.8 + etcd 3.5.0 + PgBouncer 1.15
 
 ---

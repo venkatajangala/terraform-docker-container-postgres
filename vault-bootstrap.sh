@@ -41,12 +41,17 @@ wait_for_vault() {
   local attempts=0 max=60
   echo "Waiting for Vault at ${VAULT_ADDR}/v1/sys/health ..." >&2
   while [ $attempts -lt $max ]; do
-    status=$(curl -s -o /dev/null -w "%{http_code}" \
-      "${VAULT_ADDR}/v1/sys/health?uninitok=true&sealedok=true" || true)
-    if [ "$status" = "200" ]; then
-      echo "Vault API is up (HTTP $status)" >&2
-      return 0
-    fi
+    # Accept 200 (active), 429 (standby), 501 (not initialised), 503 (sealed)
+    # — all mean the Vault process is up and the API is responding.
+    # Do NOT embed & in the URL here; the shell would background the curl call
+    # inside $() and status would be empty.
+    status=$(curl -s -o /dev/null -w "%{http_code}" "${VAULT_ADDR}/v1/sys/health" || true)
+    case "$status" in
+      200|429|501|503)
+        echo "Vault API is up (HTTP $status)" >&2
+        return 0
+        ;;
+    esac
     attempts=$((attempts + 1))
     sleep 2
   done
@@ -104,13 +109,21 @@ init_and_unseal() {
 
 # ---------------------------------------------------------------------------
 # _api — authenticated Vault API helper
+# Usage: _api METHOD path [json_payload]
+# Omit payload (or pass empty string) for GET requests — no -d flag is sent.
 # ---------------------------------------------------------------------------
 _api() {
-  local method="$1" path="$2" payload="$3"
-  curl -s -H "X-Vault-Token: ${VAULT_TOKEN}" \
-       -X "$method" \
-       -d "$payload" \
-       "${VAULT_ADDR}/v1/$path"
+  local method="$1" path="$2" payload="${3:-}"
+  if [ -n "$payload" ]; then
+    curl -s -H "X-Vault-Token: ${VAULT_TOKEN}" \
+         -X "$method" \
+         -d "$payload" \
+         "${VAULT_ADDR}/v1/$path"
+  else
+    curl -s -H "X-Vault-Token: ${VAULT_TOKEN}" \
+         -X "$method" \
+         "${VAULT_ADDR}/v1/$path"
+  fi
 }
 
 # ---------------------------------------------------------------------------

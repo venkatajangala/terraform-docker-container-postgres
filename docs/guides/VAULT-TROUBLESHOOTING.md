@@ -50,7 +50,7 @@ docker image prune    # remove dangling images
 
 ### 2. Vault Unhealthy / Sealed After Restart
 
-HashiCorp Vault in Raft dev mode is initialized once. If the `vault-data` volume is recreated, initialization must run again.
+HashiCorp Vault in Raft server mode is initialized once. If the `vault-data` volume is recreated, initialization must run again (re-run `vault-bootstrap.sh` or `terraform apply`).
 
 **Check health:**
 ```bash

@@ -71,6 +71,6 @@ resource "docker_container" "liquibase" {
   rm = false
   must_run = false
 
-  # Dependency: wait for PgBouncer (which waits for PostgreSQL HA cluster)
-  depends_on = [docker_container.pgbouncer, docker_image.liquibase]
+  # Dependency: wait for PgBouncer AND Vault bootstrap (KV secrets must be seeded first)
+  depends_on = [docker_container.pgbouncer, docker_image.liquibase, null_resource.vault_init]
 }
