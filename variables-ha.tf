@@ -166,8 +166,8 @@ variable "vault_master_key" {
 variable "vault_root_token" {
   type        = string
   sensitive   = true
-  default     = "vault-dev-root"
-  description = "Root token used for prototype/dev Vault. In production, use AppRole or auto-unseal and do not rely on static root tokens."
+  default     = ""
+  description = "Unused in server mode. Vault generates a root token on first init; it is stored in .vault-bootstrap/vault-init.json. Kept for backward compatibility only."
 }
 
 variable "vault_auto_unseal" {

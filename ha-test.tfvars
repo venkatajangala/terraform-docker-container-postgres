@@ -23,12 +23,13 @@ pgbouncer_default_pool_size  = 25
 pgbouncer_min_pool_size      = 5
 pgbouncer_reserve_pool_size  = 5
 
-// Vault Secrets Management Configuration (DEV Raft)
-// Use Vault in dev mode with AppRole for container auth.
+// Vault Secrets Management Configuration (Raft server mode)
+// Vault runs in server mode with Raft integrated storage (persistent).
+// vault-bootstrap.sh initialises + unseals on first deploy and writes
+// the root token / unseal keys to .vault-bootstrap/vault-init.json.
 vault_enabled          = true
 vault_port             = 8200
 vault_raft_nodes       = 1
-vault_root_token       = "dev-root-token"
 vault_agent_enabled    = true
 
 

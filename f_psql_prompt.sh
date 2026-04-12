@@ -27,12 +27,13 @@ _psql_resolve_password() {
   local vault_addr="${PSQL_VAULT_ADDR}"
   local tfvars="${proj_dir}/ha-test.tfvars"
   local vault_token=""
+  local init_file="${proj_dir}/.vault-bootstrap/vault-init.json"
 
-  # Read vault_root_token from ha-test.tfvars; fall back to well-known dev default
-  if [ -f "$tfvars" ]; then
-    vault_token=$(grep -oP 'vault_root_token\s*=\s*"\K[^"]+' "$tfvars" 2>/dev/null || true)
+  # In server mode, the root token is written to .vault-bootstrap/vault-init.json
+  # on first deploy by vault-bootstrap.sh.
+  if [ -f "$init_file" ]; then
+    vault_token=$(jq -r '.root_token // empty' "$init_file" 2>/dev/null || true)
   fi
-  vault_token="${vault_token:-dev-root-token}"
 
   # 1. Vault KV v2
   if curl -sf --max-time 3 "${vault_addr}/v1/sys/health" > /dev/null 2>&1; then
