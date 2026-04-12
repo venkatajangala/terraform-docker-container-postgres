@@ -20,9 +20,9 @@ graph TD
     DBHUB["DBHub / Bytebase (optional)<br/>:9090 — Web Management UI"]
 
     subgraph SECRETS["Secrets Management Layer (optional)"]
-        INF["Vault Server<br/>:8020"]
-        REDIS["vault-redis<br/>Redis 7 · :6379"]
-        INFPG["vault-postgres<br/>:5437"]
+        VAULT["Vault Server<br/>:8200 · Raft backend"]
+        AGENT["vault-agent sidecar<br/>renders postgres.env"]
+        SVOL["vault-agent-secrets<br/>shared volume"]
     end
 
     APP --> PGB1 & PGB2
@@ -30,9 +30,11 @@ graph TD
     PG1 -->|"WAL streaming"| PG2 & PG3
     PGHA <-->|"Leader election & health checks"| ETCD
     ETCD -.-> DBHUB
-    INF --> REDIS & INFPG
-    PGHA -. "fetch secrets (optional)" .-> INF
-    PGB1 & PGB2 -. "fetch secrets (optional)" .-> INF
+    AGENT -->|"AppRole login"| VAULT
+    VAULT -->|"KV secrets"| AGENT
+    AGENT -->|"render"| SVOL
+    SVOL -. "read-only mount" .-> PGHA
+    SVOL -. "read-only mount" .-> PGB1 & PGB2
 ```
 
 ## Component Details

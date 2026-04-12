@@ -196,21 +196,17 @@ PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 6432 -U pg
 ### Secrets Management (Vault)
 
 ```bash
-# Access Vault web UI
-open http://localhost:8020
-
 # Check Vault health
-curl -s http://localhost:8020/api/status | python3 -m json.tool
+curl -s http://localhost:8200/v1/sys/health | python3 -m json.tool
 
-# View Vault application logs
+# View Vault logs
 docker logs vault -f
 
-# Rotate passwords (trigger secret refresh in containers)
-docker restart pg-node-1
-docker restart pgbouncer-1
+# View Vault Agent logs (if vault_agent_enabled = true)
+docker logs vault-agent --tail=30
 
-# View PgBouncer credentials generated from Vault
-docker exec pgbouncer-1 cat /etc/pgbouncer/userlist.txt
+# Check rendered secrets (from Vault Agent sidecar)
+docker exec pg-node-1 cat /etc/vault/secrets/postgres.env
 
 # Check PostgreSQL secret injection logs
 docker logs pg-node-1 | grep -i vault

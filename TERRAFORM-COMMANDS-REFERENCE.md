@@ -158,7 +158,7 @@ terraform destroy -target='docker_container.pgbouncer' -auto-approve
 # Destroy specific resources (multiple)
 terraform destroy \
   -target='docker_container.pgbouncer' \
-  -target='docker_container.infisical' \
+  -target='docker_container.vault' \
   -auto-approve
 
 # Destroy specific module/count index
@@ -291,7 +291,7 @@ postgres_db = "postgres"
 pg_node_memory_mb = 4096
 pgbouncer_replicas = 2
 pgbouncer_max_client_conn = 1000
-infisical_enabled = true
+vault_enabled = true
 EOF
 
 # Apply using tfvars file

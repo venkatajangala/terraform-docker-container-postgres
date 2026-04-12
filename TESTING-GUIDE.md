@@ -466,18 +466,19 @@ EOF
 ### 7.1 Vault Connectivity
 
 ```bash
-# Check Vault API
-curl -s http://localhost:8020/api/status | python3 -m json.tool
+# Check Vault health (HashiCorp Vault native endpoint)
+curl -s http://localhost:8200/v1/sys/health | python3 -m json.tool
 
-# Expected response: { "status": "ok" } or similar
+# Expected: {"initialized":true,"sealed":false,"standby":false,...}
 
 # Check Vault logs
 docker logs vault | tail -20
 ```
 
 **Expected Results**:
-- ✓ HTTP 200 response
-- ✓ Status indicates operational
+
+- ✓ HTTP 200 response with `"sealed": false`
+- ✓ `"initialized": true`
 
 ### 7.2 Vault Secrets Injection
 

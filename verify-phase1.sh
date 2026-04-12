@@ -53,11 +53,11 @@ echo "📁 FILE CHECKS"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 check_file "Dockerfile.patroni"
 check_file "Dockerfile.pgbouncer"
-check_file "Dockerfile.infisical"
 check_file "initdb-wrapper.sh"
 check_file ".dockerignore"
 check_file "main-ha.tf"
-check_file "main-infisical.tf"
+check_file "main-vault-init.tf"
+check_file "main-vault-agent.tf"
 check_file "variables-ha.tf"
 check_file "outputs-ha.tf"
 check_file "entrypoint-patroni.sh"
@@ -72,7 +72,6 @@ echo "🐳 DOCKER IMAGE CHECKS"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 check_image "postgres-patroni:18-pgvector"
 check_image "pgbouncer:ha"
-check_image "infisical/infisical"
 echo ""
 
 echo "📊 IMAGE SIZE CHECKS"
@@ -109,7 +108,7 @@ echo ""
 
 echo "📋 SCRIPT PERMISSION CHECKS"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-for script in entrypoint-patroni.sh entrypoint-pgbouncer.sh entrypoint-infisical.sh initdb-wrapper.sh; do
+for script in entrypoint-patroni.sh entrypoint-pgbouncer.sh vault-bootstrap.sh vault-bootstrap-split.sh; do
   total_checks=$((total_checks + 1))
   if [ -f "$script" ] && [ -x "$script" ]; then
     echo -e "${check_mark} Script is executable: $script"

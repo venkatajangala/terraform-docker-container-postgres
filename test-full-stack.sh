@@ -64,7 +64,7 @@ echo "────────────────────────�
 
 containers=(pg-node-1 pg-node-2 pg-node-3 etcd pgbouncer-1 pgbouncer-2 dbhub)
 if [ "${Vault_ENABLED:-false}" = "true" ]; then
-  containers+=(vault vault-postgres vault-redis)
+  containers+=(vault)
 fi
 for container in "${containers[@]}"; do
     if docker ps --format '{{.Names}}' | grep -q "^${container}$"; then
@@ -307,24 +307,27 @@ echo "📋 TEST 11: Vault Secrets Manager Health"
 echo "─────────────────────────────────────────────────────────────────────"
 
 if [ "${Vault_ENABLED:-false}" = "true" ]; then
-  Vault_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8020/api/status 2>/dev/null)
+  Vault_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8200/v1/sys/health 2>/dev/null)
   if [ "$Vault_STATUS" = "200" ]; then
       pass "Vault API is healthy (HTTP $Vault_STATUS)"
   else
       fail "Vault API returned HTTP ${Vault_STATUS:-no response}"
   fi
 
-  for svc in vault vault-postgres vault-redis; do
-      health=$(docker inspect "$svc" --format '{{.State.Health.Status}}' 2>/dev/null)
-      if [ "$health" = "healthy" ]; then
-          pass "$svc is healthy"
-      elif docker ps --format '{{.Names}}' | grep -q "^${svc}$"; then
-          warn "$svc is running but health status: ${health:-no healthcheck}"
-          ((PASS_COUNT++))
+  for svc in vault vault-agent; do
+      if docker ps --format '{{.Names}}' | grep -q "^${svc}$"; then
+          pass "$svc is running"
       else
-          fail "$svc is not running"
+          warn "$svc is not running (may not be enabled)"
       fi
   done
+
+  # Check Vault Agent rendered secrets
+  if docker exec pg-node-1 test -f /etc/vault/secrets/postgres.env 2>/dev/null; then
+      pass "Vault Agent rendered /etc/vault/secrets/postgres.env"
+  else
+      warn "Vault Agent secrets file not present (vault_agent_enabled may be false)"
+  fi
 else
   echo "Skipping Vault checks (Vault_ENABLED != true)"
 fi

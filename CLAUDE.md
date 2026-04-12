@@ -61,12 +61,15 @@ bash verify-liquibase.sh
 
 ### Terraform Files
 - **main-ha.tf** — Core infrastructure: Docker network, etcd, 3 PostgreSQL nodes, PgBouncer (×2), Vault stack
+- **main-vault-init.tf** — Vault container, volume, `null_resource.vault_init` bootstrap trigger
+- **main-vault-agent.tf** — Vault Agent sidecar container, `vault-agent-secrets` volume, permission fix
 - **main-liquibase.tf** — Liquibase one-shot container (mounts changelog, waits for primary)
 - **variables-ha.tf** — All configuration knobs (passwords, pool sizes, memory limits, feature flags)
 - **outputs-ha.tf** — Connection strings, endpoints, generated credentials
 
 ### Container Stack
-```
+
+```text
 Applications
     └── PgBouncer (:6432, :6433)  — transaction-mode pooling
             └── pg-node-1 (:5432) primary   ─┐
@@ -74,17 +77,21 @@ Applications
             └── pg-node-3 (:5434) replica   ─┘
 etcd (:2379)          — distributed consensus for leader election
 Liquibase (one-shot)  — schema migrations, runs after primary elected
-Vault (:8020)     — secrets store (+ its own Postgres :5437 + Redis :6379)
+Vault (:8200)         — HashiCorp Vault, Raft backend (no external DB or Redis)
+vault-agent           — renders secrets to shared volume (vault_agent_enabled)
 ```
 
 All containers share `pg-ha-network` (Docker bridge).
 
 ### Shell Scripts
+
 | Script | Role |
-|--------|------|
+| ------ | ---- |
 | `entrypoint-patroni.sh` | Node bootstrap: fetches secrets from Vault, waits for etcd, starts Patroni |
 | `entrypoint-pgbouncer.sh` | Generates `pgbouncer.ini` dynamically, optionally pulls credentials from Vault |
 | `liquibase-entrypoint.sh` | Polls primary with `pg_isready`, then runs `liquibase update` |
+| `vault-bootstrap.sh` | Initializes Vault, creates AppRole policy, seeds KV v2 secrets |
+| `vault-bootstrap-split.sh` | Splits `approle_<role>.json` → plain-text `role_id` + `secret_id` files |
 | `vault-secrets.sh` | Library: `fetch_secret_from_vault()` / `create_secret_in_vault()` |
 | `pgbouncer-health-check.sh` | `nc -z` connectivity checks for all nodes |
 

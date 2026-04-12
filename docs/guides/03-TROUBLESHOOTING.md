@@ -450,34 +450,30 @@ psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1;"
 unset PGPASSWORD
 ```
 
-### Vault Container Restart Loop (Missing Redis)
+### Vault Container Restart Loop
 
-**Symptom**: The `vault` container keeps restarting; logs show Redis connection errors.
+**Symptom**: The `vault` container keeps restarting.
 
-**Cause**: Vault requires Redis. The `vault-redis` container (Redis 7 Alpine) must be running before Vault starts.
+**Cause**: Vault uses an internal Raft backend (no external Redis or Postgres required). Common causes are port conflicts, missing data volume, or a sealed state after restart.
 
 **Check:**
 
 ```bash
-# Confirm vault-redis is running
-docker ps | grep vault-redis
+# View Vault logs
+docker logs vault | tail -30
 
-# If not running, check its logs
-docker logs vault-redis
+# Check Vault health
+curl -s http://localhost:8200/v1/sys/health | python3 -m json.tool
 
-# If the container doesn't exist at all, re-apply Terraform
-terraform apply -var-file="ha-test.tfvars"
+# If sealed, re-run bootstrap (dev only)
+bash vault-bootstrap.sh
 ```
 
-**If vault-redis is running but Vault still restarts:**
+**If Vault is unhealthy after a full destroy/apply cycle:**
 
 ```bash
-# Verify Redis connectivity from the Vault container
-docker exec vault sh -c 'redis-cli -h vault-redis ping'
-# Expected: PONG
-
-# Check Vault logs for the exact error
-docker logs vault | tail -50
+# Re-apply to recreate Vault and re-run bootstrap
+terraform apply -var-file="ha-test.tfvars" -auto-approve
 ```
 
 ### Node Shows "start failed" (Timeline Divergence)

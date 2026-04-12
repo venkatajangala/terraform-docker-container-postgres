@@ -17,9 +17,10 @@ Start here if you're new to this project:
 
 ## 🔐 Secrets Management (Vault)
 
-- **[Vault Quick Start](getting-started/Vault-QUICKSTART.md)** — Enable and verify in 5 minutes
-- **[Integration Guide](Vault-INTEGRATION.md)** — Architecture and implementation details
-- **[Vault Troubleshooting](guides/Vault-TROUBLESHOOTING.md)** — Common secrets issues
+- **[Vault Quick Start](getting-started/VAULT-QuickStart.md)** — Enable and verify in 5 minutes
+- **[Integration Guide](VAULT-INTEGRATION.md)** — Architecture and implementation details
+- **[Vault Agent Sidecar](VAULT-AGENT-SIDECAR.md)** — Production sidecar pattern
+- **[Vault Troubleshooting](guides/VAULT-TROUBLESHOOTING.md)** — Common secrets issues
 
 ## 🔌 Connection Pooling (PgBouncer)
 
@@ -68,23 +69,23 @@ Start here if you're new to this project:
 
 1. Check [Troubleshooting](guides/03-TROUBLESHOOTING.md)
 2. Run diagnostic commands from [Operations Guide](guides/02-OPERATIONS.md)
-3. For secrets issues: [Vault Troubleshooting](guides/Vault-TROUBLESHOOTING.md)
+3. For secrets issues: [Vault Troubleshooting](guides/VAULT-TROUBLESHOOTING.md)
 
 ## 📁 Current Documentation Structure
 
-```
+```text
 docs/
 ├── README.md                          ← You are here
 │
 ├── getting-started/
 │   ├── 01-QUICK-START.md             # 5-minute deployment
 │   ├── 02-NEW-USER-GUIDE.md          # Comprehensive introduction
-│   └── Vault-QUICKSTART.md       # Secrets management quick start
+│   └── VAULT-QuickStart.md           # Vault bootstrap & AppRole quick start
 │
 ├── guides/
 │   ├── 02-OPERATIONS.md              # Running & maintenance
 │   ├── 03-TROUBLESHOOTING.md         # Common issues & fixes
-│   └── Vault-TROUBLESHOOTING.md  # Secrets-specific issues
+│   └── VAULT-TROUBLESHOOTING.md      # Vault-specific issues
 │
 ├── pgbouncer/
 │   └── AUTHENTICATION.md             # PgBouncer auth & userlist
@@ -95,7 +96,8 @@ docs/
 ├── architecture/
 │   └── ARCHITECTURE.md               # Full system architecture
 │
-└── Vault-INTEGRATION.md          # Vault architecture & implementation
+├── VAULT-INTEGRATION.md              # Vault architecture & implementation
+└── VAULT-AGENT-SIDECAR.md            # Vault Agent sidecar pattern
 ```
 
 ## 🔍 Quick Command Reference

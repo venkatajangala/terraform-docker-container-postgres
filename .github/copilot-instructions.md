@@ -105,9 +105,8 @@ Liquibase — one-shot container (runs after primary elected)
 All containers share `pg-ha-network` (Docker bridge, `172.18.0.0/16`).
 
 **Optional: Vault Stack**
-- Vault server (:8020) — secrets management
-- Vault's own PostgreSQL (:5437) — secrets store
-- Redis (:6379) — Vault cache
+- Vault server (:8200) — HashiCorp Vault, Raft backend (no external DB or Redis)
+- vault-agent — sidecar that renders secrets to shared volume (vault_agent_enabled)
 
 ### Shell Script Roles
 | Script | Purpose |
@@ -181,7 +180,7 @@ This prevents migrations from running on replicas or before cluster stability.
 - Node hostnames: `pg-node-1`, `pg-node-2`, `pg-node-3` (Patroni uses DNS)
 - PgBouncer: `pgbouncer-1`, `pgbouncer-2`
 - etcd: `etcd`
-- Vault (if enabled): `vault` (plus `vault-postgres`, `vault-redis`)
+- Vault (if enabled): `vault`, `vault-agent` (sidecar, if vault_agent_enabled)
 
 ### Liquibase YAML Format Requirements
 Liquibase 5.x requires:

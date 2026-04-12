@@ -35,7 +35,8 @@ fi
 
 printf '%s' "$ROLE_ID"  > "${OUT_DIR}/role_id"
 printf '%s' "$SECRET_ID" > "${OUT_DIR}/secret_id"
-chmod 600 "${OUT_DIR}/role_id" "${OUT_DIR}/secret_id"
+# 644: owner can write, vault-agent container user (uid=100) can read via world-read bit
+chmod 644 "${OUT_DIR}/role_id" "${OUT_DIR}/secret_id"
 
 echo "Split complete:"
 echo "  ${OUT_DIR}/role_id   -> ${ROLE_ID}"

@@ -262,7 +262,7 @@ Your project:
 - 🔒 Enable PostgreSQL audit logging
 - 🔒 Set up automated backups
 - 🔒 Configure monitoring and alerts
-- 🔒 Enable Vault for secrets rotation (see [Vault Quick Start](Vault-QUICKSTART.md))
+- 🔒 Enable Vault for secrets rotation (see [Vault Quick Start](VAULT-QuickStart.md))
 
 ## Your Next Steps (Choose One)
 

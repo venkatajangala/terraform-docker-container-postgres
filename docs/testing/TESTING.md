@@ -15,7 +15,7 @@ bash test-full-stack.sh
 curl -s http://localhost:8008 | python3 -m json.tool
 
 # 4. Check Vault health
-curl -s http://localhost:8020/api/status | python3 -m json.tool
+curl -s http://localhost:8200/v1/sys/health | python3 -m json.tool
 ```
 
 > **Passwords are auto-generated** by Terraform. Retrieve them with:
