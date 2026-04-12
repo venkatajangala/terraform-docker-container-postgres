@@ -14,15 +14,15 @@ curl -s http://localhost:8008/leader | python3 -m json.tool
 curl -s http://localhost:8008/cluster | python3 -m json.tool | grep -E '"name"|"state"|"role"|"lag"'
 
 # Check all containers (10 total)
-docker ps | grep -E 'pg-node|pgbouncer|etcd|infisical'
+docker ps | grep -E 'pg-node|pgbouncer|etcd|vault'
 
 # Expected containers:
 #   pg-node-1, pg-node-2, pg-node-3   (PostgreSQL + Patroni)
 #   pgbouncer-1, pgbouncer-2           (connection poolers)
 #   etcd                               (distributed config store)
-#   infisical                          (secrets manager)
-#   infisical-postgres                 (Infisical backend DB)
-#   infisical-redis                    (Redis 7 Alpine, required by Infisical)
+#   vault                          (secrets manager)
+#   vault-postgres                 (Vault backend DB)
+#   vault-redis                    (Redis 7 Alpine, required by Vault)
 #   pgadmin                            (web UI)
 ```
 
@@ -487,11 +487,11 @@ curl -s http://localhost:8008/cluster
 
 ### Monthly Health Check Checklist
 
-- [ ] All 10 containers running (pg-node x3, pgbouncer x2, etcd, infisical, infisical-postgres, infisical-redis, pgadmin)
+- [ ] All 10 containers running (pg-node x3, pgbouncer x2, etcd, vault, vault-postgres, vault-redis, pgadmin)
 - [ ] All 3 PostgreSQL nodes running
 - [ ] All 2 PgBouncer instances healthy
 - [ ] etcd cluster has quorum (2/2 or 3/3)
-- [ ] Infisical healthy: `curl -s http://localhost:8020/api/status`
+- [ ] Vault healthy: `curl -s http://localhost:8020/api/status`
 - [ ] Replication lag < 100ms
 - [ ] No connection pool exhaustion
 - [ ] No slow queries > 5s

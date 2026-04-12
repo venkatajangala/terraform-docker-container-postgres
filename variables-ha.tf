@@ -111,56 +111,75 @@ variable "pgbouncer_reserve_pool_size" {
 }
 
 # ============================================================================
-# Infisical Secrets Management
+# Vault Secrets Management
 # ============================================================================
 
-variable "infisical_enabled" {
+variable "vault_enabled" {
   type        = bool
   default     = true
-  description = "Enable Infisical secrets management integration"
+  description = "Enable Vault secrets management integration"
 }
 
-variable "infisical_port" {
+variable "vault_port" {
   type        = number
-  default     = 8020
-  description = "Infisical API server port"
+  default     = 8200
+  description = "Vault API server port"
 }
 
-variable "infisical_db_port" {
+variable "vault_db_port" {
   type        = number
   default     = 5437
-  description = "Internal PostgreSQL database port for Infisical"
+  description = "Internal PostgreSQL database port for Vault"
 }
 
-variable "infisical_project_id" {
+variable "vault_project_id" {
   type        = string
   sensitive   = true
   default     = ""
-  description = "Infisical project ID for secret access (leave empty for new project creation)"
+  description = "Vault project ID for secret access (leave empty for new project creation)"
 }
 
-variable "infisical_environment" {
+variable "vault_environment" {
   type        = string
   default     = "dev"
-  description = "Infisical environment: dev, staging, or production"
+  description = "Vault environment: dev, staging, or production"
   validation {
-    condition     = contains(["dev", "staging", "production"], var.infisical_environment)
-    error_message = "infisical_environment must be 'dev', 'staging', or 'production'."
+    condition     = contains(["dev", "staging", "production"], var.vault_environment)
+    error_message = "vault_environment must be 'dev', 'staging', or 'production'."
   }
 }
 
-variable "infisical_api_key" {
+variable "vault_api_key" {
   type        = string
   sensitive   = true
   default     = ""
-  description = "Infisical API key for service-to-service authentication (use TF_VAR_infisical_api_key env var)"
+  description = "Vault API key for service-to-service authentication (use TF_VAR_vault_api_key env var)"
 }
 
-variable "infisical_master_key" {
+variable "vault_master_key" {
   type        = string
   sensitive   = true
   default     = ""
-  description = "Infisical master encryption key (auto-generated if empty)"
+  description = "Vault master encryption key (auto-generated if empty)"
+}
+
+variable "vault_root_token" {
+  type        = string
+  sensitive   = true
+  default     = "vault-dev-root"
+  description = "Root token used for prototype/dev Vault. In production, use AppRole or auto-unseal and do not rely on static root tokens."
+}
+
+variable "vault_auto_unseal" {
+  type        = bool
+  default     = false
+  description = "If true, configure Vault for auto-unseal with an external KMS (production)."
+}
+
+variable "vault_raft_nodes" {
+  type        = number
+  default     = 1
+  description = "Number of Vault Raft nodes for HA when using docker-compose/terraform. For production, consider external storage and auto-unseal."
 }
 
 variable "generate_new_passwords" {
@@ -178,6 +197,7 @@ variable "password_length" {
     error_message = "password_length must be between 16 and 128 characters."
   }
 }
+
 
 # ============================================================================
 # Resource Limits & Performance Tuning

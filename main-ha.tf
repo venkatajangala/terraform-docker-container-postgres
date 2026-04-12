@@ -72,12 +72,9 @@ locals {
     "PATRONI_REWIND_PASSWORD=${local.postgres_password}",
   ]
 
-  # Infisical credentials (if enabled)
-  infisical_env = var.infisical_enabled ? [
-    "INFISICAL_API_KEY=${var.infisical_api_key}",
-    "INFISICAL_PROJECT_ID=${var.infisical_project_id}",
-    "INFISICAL_ENVIRONMENT=${var.infisical_environment}",
-    "INFISICAL_HOST=http://infisical:${var.infisical_port}"
+  # Vault credentials (if enabled)
+  vault_env = var.vault_enabled ? [
+    "VAULT_ADDR=http://vault:${var.vault_port}"
   ] : []
 
   # Use random passwords if not explicitly provided
@@ -107,13 +104,13 @@ resource "random_password" "pgbouncer_admin_password" {
   override_special = "!_-+"
 }
 
-resource "random_password" "infisical_api_key" {
+resource "random_password" "vault_api_key" {
   length           = 32
   special          = true
   override_special = "!_-+"
 }
 
-resource "random_password" "infisical_db_password" {
+resource "random_password" "vault_db_password" {
   length           = var.password_length
   special          = true
   override_special = "!_-+"
@@ -244,7 +241,7 @@ resource "docker_container" "pg_node" {
       "PATRONI_POSTGRESQL__LISTEN=0.0.0.0:5432",
       "PATRONI_POSTGRESQL__CONNECT_ADDRESS=pg-node-${each.key}:5432",
     ],
-    local.infisical_env
+    local.vault_env
   )
 
   # External PostgreSQL port
@@ -271,6 +268,22 @@ resource "docker_container" "pg_node" {
     target    = "/etc/patroni/patroni.yml"
     source    = abspath(local_file.patroni_config[each.key].filename)
     type      = "bind"
+    read_only = true
+  }
+
+  # Mount AppRole JSON for Vault (dev): allows container to login via AppRole
+  mounts {
+    target    = "/etc/vault/approle_pg-role.json"
+    source    = abspath("${path.module}/.vault-bootstrap/approle_pg-role.json")
+    type      = "bind"
+    read_only = true
+  }
+
+  # Mount Vault Agent rendered secrets (shared volume)
+  mounts {
+    target    = "/etc/vault/secrets"
+    source    = docker_volume.vault_agent_secrets.name
+    type      = "volume"
     read_only = true
   }
 
@@ -314,8 +327,8 @@ resource "docker_container" "pg_node" {
   stop_signal  = "SIGTERM"
   stop_timeout = 30
 
-  # Dependency on etcd and rendered patroni config
-  depends_on = [docker_container.etcd, local_file.patroni_config]
+  # Dependency on etcd, rendered patroni config, and vault init (approle file)
+  depends_on = [docker_container.etcd, local_file.patroni_config, null_resource.vault_init]
 }
 
 # ============================================================================
@@ -380,7 +393,7 @@ resource "docker_container" "pgbouncer" {
     "DB_ADMIN_PASSWORD=${local.postgres_password}",
     "DB_REPLICATION_USER=replicator",
     "DB_REPLICATION_PASSWORD=${local.replication_password}"
-  ], local.infisical_env)
+  ], local.vault_env)
 
   ports {
     internal = 6432
@@ -391,6 +404,22 @@ resource "docker_container" "pgbouncer" {
     target    = "/etc/pgbouncer/pgbouncer.ini"
     source    = abspath("${path.module}/pgbouncer/pgbouncer.ini")
     type      = "bind"
+    read_only = true
+  }
+
+  # Mount AppRole for Vault authentication (dev)
+  mounts {
+    target    = "/etc/vault/approle_pg-role.json"
+    source    = abspath("${path.module}/.vault-bootstrap/approle_pg-role.json")
+    type      = "bind"
+    read_only = true
+  }
+
+  # Mount Vault Agent rendered secrets (shared volume)
+  mounts {
+    target    = "/etc/vault/secrets"
+    source    = docker_volume.vault_agent_secrets.name
+    type      = "volume"
     read_only = true
   }
 
@@ -426,5 +455,5 @@ resource "docker_container" "pgbouncer" {
   stop_signal  = "SIGTERM"
   stop_timeout = 30
 
-  depends_on = [docker_container.pg_node]
+  depends_on = [docker_container.pg_node, null_resource.vault_init]
 }

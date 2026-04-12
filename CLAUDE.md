@@ -8,7 +8,7 @@ Production-ready **PostgreSQL 18 High Availability cluster** managed entirely wi
 - 3-node Patroni cluster (1 primary + 2 replicas) with automatic failover via etcd
 - PgBouncer connection pooling (transaction mode, 2 instances)
 - Liquibase schema migrations (HA-aware, waits for primary before running)
-- Infisical secrets management (optional, toggle via `infisical_enabled`)
+- Vault secrets management (optional, toggle via `vault_enabled`)
 - pgvector extension for AI/ML embeddings (1536-dim IVFFLAT)
 
 ## Key Commands
@@ -60,7 +60,7 @@ bash verify-liquibase.sh
 ## Architecture
 
 ### Terraform Files
-- **main-ha.tf** — Core infrastructure: Docker network, etcd, 3 PostgreSQL nodes, PgBouncer (×2), Infisical stack
+- **main-ha.tf** — Core infrastructure: Docker network, etcd, 3 PostgreSQL nodes, PgBouncer (×2), Vault stack
 - **main-liquibase.tf** — Liquibase one-shot container (mounts changelog, waits for primary)
 - **variables-ha.tf** — All configuration knobs (passwords, pool sizes, memory limits, feature flags)
 - **outputs-ha.tf** — Connection strings, endpoints, generated credentials
@@ -74,7 +74,7 @@ Applications
             └── pg-node-3 (:5434) replica   ─┘
 etcd (:2379)          — distributed consensus for leader election
 Liquibase (one-shot)  — schema migrations, runs after primary elected
-Infisical (:8020)     — secrets store (+ its own Postgres :5437 + Redis :6379)
+Vault (:8020)     — secrets store (+ its own Postgres :5437 + Redis :6379)
 ```
 
 All containers share `pg-ha-network` (Docker bridge).
@@ -82,10 +82,10 @@ All containers share `pg-ha-network` (Docker bridge).
 ### Shell Scripts
 | Script | Role |
 |--------|------|
-| `entrypoint-patroni.sh` | Node bootstrap: fetches secrets from Infisical, waits for etcd, starts Patroni |
-| `entrypoint-pgbouncer.sh` | Generates `pgbouncer.ini` dynamically, optionally pulls credentials from Infisical |
+| `entrypoint-patroni.sh` | Node bootstrap: fetches secrets from Vault, waits for etcd, starts Patroni |
+| `entrypoint-pgbouncer.sh` | Generates `pgbouncer.ini` dynamically, optionally pulls credentials from Vault |
 | `liquibase-entrypoint.sh` | Polls primary with `pg_isready`, then runs `liquibase update` |
-| `infisical-secrets.sh` | Library: `fetch_secret_from_infisical()` / `create_secret_in_infisical()` |
+| `vault-secrets.sh` | Library: `fetch_secret_from_vault()` / `create_secret_in_vault()` |
 | `pgbouncer-health-check.sh` | `nc -z` connectivity checks for all nodes |
 
 ### Liquibase Changelog Structure
@@ -110,9 +110,9 @@ All changesets have rollback blocks — use `rollback-count N` to revert.
 
 ## Important Patterns
 
-**Feature flags in variables-ha.tf**: `liquibase_enabled`, `infisical_enabled`, `pgbouncer_enabled`, `pgbouncer_replicas` — toggle features without touching resource definitions.
+**Feature flags in variables-ha.tf**: `liquibase_enabled`, `vault_enabled`, `pgbouncer_enabled`, `pgbouncer_replicas` — toggle features without touching resource definitions.
 
-**Secrets flow**: Infisical is optional. When disabled, passwords come from Terraform-generated values passed as environment variables. When enabled, containers call the Infisical HTTP API at startup to fetch/rotate credentials.
+**Secrets flow**: Vault is optional. When disabled, passwords come from Terraform-generated values passed as environment variables. When enabled, containers call the Vault HTTP API at startup to fetch/rotate credentials.
 
 **Liquibase HA-awareness**: `liquibase-entrypoint.sh` connects to the `postgres_liquibase` PgBouncer session pool (which routes to pg-node-1 only) and checks `pg_is_in_recovery()` returns `f` before running migrations. This avoids the round-robin `postgres` pool which could route to a replica.
 

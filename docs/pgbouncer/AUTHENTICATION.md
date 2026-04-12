@@ -254,7 +254,7 @@ docker restart pgbouncer-1 pgbouncer-2
 
 ### For Production
 
-1. **Rotate Passwords Regularly** — Let Terraform regenerate via `random_password`, or use Infisical for automated rotation.
+1. **Rotate Passwords Regularly** — Let Terraform regenerate via `random_password`, or use Vault for automated rotation.
 
 2. **Enable SSL/TLS:**
 

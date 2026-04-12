@@ -422,7 +422,7 @@ kill -9 <PID>
 # pgbouncer_external_port_base = 6500  # instead of 6432
 ```
 
-## Infisical & Secret Management Issues
+## Vault & Secret Management Issues
 
 ### PgBouncer Authentication Failed (Password Out of Sync)
 
@@ -450,34 +450,34 @@ psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1;"
 unset PGPASSWORD
 ```
 
-### Infisical Container Restart Loop (Missing Redis)
+### Vault Container Restart Loop (Missing Redis)
 
-**Symptom**: The `infisical` container keeps restarting; logs show Redis connection errors.
+**Symptom**: The `vault` container keeps restarting; logs show Redis connection errors.
 
-**Cause**: Infisical requires Redis. The `infisical-redis` container (Redis 7 Alpine) must be running before Infisical starts.
+**Cause**: Vault requires Redis. The `vault-redis` container (Redis 7 Alpine) must be running before Vault starts.
 
 **Check:**
 
 ```bash
-# Confirm infisical-redis is running
-docker ps | grep infisical-redis
+# Confirm vault-redis is running
+docker ps | grep vault-redis
 
 # If not running, check its logs
-docker logs infisical-redis
+docker logs vault-redis
 
 # If the container doesn't exist at all, re-apply Terraform
 terraform apply -var-file="ha-test.tfvars"
 ```
 
-**If infisical-redis is running but Infisical still restarts:**
+**If vault-redis is running but Vault still restarts:**
 
 ```bash
-# Verify Redis connectivity from the Infisical container
-docker exec infisical sh -c 'redis-cli -h infisical-redis ping'
+# Verify Redis connectivity from the Vault container
+docker exec vault sh -c 'redis-cli -h vault-redis ping'
 # Expected: PONG
 
-# Check Infisical logs for the exact error
-docker logs infisical | tail -50
+# Check Vault logs for the exact error
+docker logs vault | tail -50
 ```
 
 ### Node Shows "start failed" (Timeline Divergence)
