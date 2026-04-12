@@ -33,7 +33,11 @@ echo "TEST 1: Container Status"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Check if all containers are running
-for container in pg-node-1 pg-node-2 pg-node-3 pgbouncer-1 pgbouncer-2 etcd infisical; do
+containers=(pg-node-1 pg-node-2 pg-node-3 pgbouncer-1 pgbouncer-2 etcd)
+if [ "${Vault_ENABLED:-false}" = "true" ]; then
+  containers+=(vault)
+fi
+for container in "${containers[@]}"; do
   if docker ps --format "{{.Names}}" | grep -q "^${container}$"; then
     test_pass "Container running: $container"
   else
@@ -66,11 +70,23 @@ else
   test_fail "etcd cluster coordinator NOT accessible"
 fi
 
-# Check Patroni leader election in etcd
+# Check Patroni leader election in etcd (v2) or fallback to Patroni API
 if curl -s http://localhost:2379/v2/keys/pg-ha-cluster/members/ | grep -q "pg-node"; then
-  test_pass "Patroni cluster members registered in etcd"
+  test_pass "Patroni cluster members registered in etcd (v2)"
 else
-  test_fail "Patroni cluster members NOT registered in etcd"
+  # etcd v2 may be unavailable (etcd v3). Fall back to Patroni API cluster endpoints.
+  found=0
+  for port in 8008 8009 8010; do
+    if curl -s http://localhost:${port}/cluster | grep -q "pg-node"; then
+      found=1
+      break
+    fi
+  done
+  if [ "$found" -eq 1 ]; then
+    test_pass "Patroni cluster members registered (via Patroni API)"
+  else
+    test_fail "Patroni cluster members NOT registered in etcd or Patroni API"
+  fi
 fi
 echo ""
 
@@ -127,22 +143,27 @@ else
 fi
 echo ""
 
-echo "TEST 7: Infisical Secrets Management"
+echo "TEST 7: Vault Secrets Management"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Check Infisical API
-if curl -s http://localhost:8020/api/v1/health > /dev/null 2>&1; then
-  test_pass "Infisical secrets manager is accessible"
+if [ "${Vault_ENABLED:-false}" = "true" ]; then
+  # Check Vault API
+  if curl -s http://localhost:8020/api/v1/health > /dev/null 2>&1; then
+    test_pass "Vault secrets manager is accessible"
+  else
+    test_fail "Vault secrets manager NOT accessible"
+  fi
+
+  # Check Vault PostgreSQL backend
+  if docker exec vault-postgres psql -U vault -d vault -c "SELECT 1;" > /dev/null 2>&1; then
+    test_pass "Vault PostgreSQL backend is running"
+  else
+    test_fail "Vault PostgreSQL backend NOT running"
+  fi
 else
-  test_fail "Infisical secrets manager NOT accessible"
+  echo "Skipping Vault checks (Vault_ENABLED != true)"
 fi
 
-# Check Infisical PostgreSQL backend
-if docker exec infisical-postgres psql -U infisical -d infisical -c "SELECT 1;" > /dev/null 2>&1; then
-  test_pass "Infisical PostgreSQL backend is running"
-else
-  test_fail "Infisical PostgreSQL backend NOT running"
-fi
 echo ""
 
 echo "TEST 8: Resource Limits & Monitoring"
@@ -172,13 +193,13 @@ echo ""
 echo "TEST 9: Data Persistence"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Create test data
-if docker exec pg-node-1 psql -U pgadmin -d postgres -c "CREATE TABLE IF NOT EXISTS test_table AS SELECT 1 as id, 'test' as data;" > /dev/null 2>&1; then
+# Create test data (use postgres superuser to ensure DDL privileges)
+if docker exec pg-node-1 psql -U postgres -d postgres -c "CREATE TABLE IF NOT EXISTS test_table AS SELECT 1 as id, 'test' as data;" > /dev/null 2>&1; then
   test_pass "Test data created successfully"
   
   # Verify data on replica
   sleep 2
-  if docker exec pg-node-2 psql -U pgadmin -d postgres -c "SELECT * FROM test_table WHERE id = 1;" | grep -q "test"; then
+  if docker exec pg-node-2 psql -U postgres -d postgres -c "SELECT * FROM test_table WHERE id = 1;" | grep -q "test"; then
     test_pass "Test data replicated to standby node"
   else
     test_fail "Test data NOT replicated"

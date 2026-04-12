@@ -7,27 +7,27 @@ RUN apt-get update && \
     wget \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Install Infisical CLI and SDK
-RUN npm install -g @infisical/cli && \
+# Install Vault CLI and SDK
+RUN npm install -g @vault/cli && \
     npm cache clean --force
 
-# Create directories for Infisical (consolidated)
-RUN mkdir -p /var/lib/infisical /etc/infisical /var/log/infisical && \
-    chown -R node:node /var/lib/infisical /etc/infisical /var/log/infisical
+# Create directories for Vault (consolidated)
+RUN mkdir -p /var/lib/vault /etc/vault /var/log/vault && \
+    chown -R node:node /var/lib/vault /etc/vault /var/log/vault
 
 # Set working directory
 WORKDIR /app
 
 # Copy entrypoint script
-COPY entrypoint-infisical.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint-infisical.sh
+COPY entrypoint-vault.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint-vault.sh
 
 # Health check
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8020/api/v1/health || exit 1
 
-# Expose Infisical API port
+# Expose Vault API port
 EXPOSE 8020
 
-ENTRYPOINT ["/usr/local/bin/entrypoint-infisical.sh"]
+ENTRYPOINT ["/usr/local/bin/entrypoint-vault.sh"]
 CMD ["node", "/app/server.js"]

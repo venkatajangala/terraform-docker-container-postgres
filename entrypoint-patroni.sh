@@ -11,39 +11,59 @@ export PATH="/usr/lib/postgresql/18/bin:$PATH"
 echo "=== Starting Patroni PostgreSQL Node ==="
 
 # ============================================================================
-# SECTION 1: Infisical Secrets Integration
+# SECTION 1: Vault Secrets Integration
 # ============================================================================
 
-echo "Checking Infisical integration..."
+echo "Checking Vault integration..."
 
-if [ -f /etc/patroni/infisical-secrets.sh ]; then
-  source /etc/patroni/infisical-secrets.sh
-  
-  if [ -n "${INFISICAL_API_KEY:-}" ] && [ -n "${INFISICAL_PROJECT_ID:-}" ]; then
-    echo "Infisical integration enabled"
-    
-    if verify_infisical_connection 2>/dev/null; then
-      echo "Fetching secrets from Infisical..."
-      
-      if POSTGRES_PASSWORD=$(fetch_secret_from_infisical "db-admin-password" 2>/dev/null); then
-        echo "✓ Fetched db-admin-password from Infisical"
-        export POSTGRES_PASSWORD
-      else
-        echo "⚠ Using environment db-admin-password"
-      fi
-      
-      if REPLICATION_PASSWORD=$(fetch_secret_from_infisical "db-replication-password" 2>/dev/null); then
-        echo "✓ Fetched db-replication-password from Infisical"
-        export REPLICATION_PASSWORD
-      else
-        echo "⚠ Using environment db-replication-password"
-      fi
+# Source vault helper if present (common paths)
+if [ -f /etc/vault/vault-secrets.sh ]; then
+  source /etc/vault/vault-secrets.sh
+elif [ -f /vault-secrets.sh ]; then
+  source /vault-secrets.sh
+fi
+
+# If Vault Agent rendered file exists, load and export variables as env
+if [ -f /etc/vault/secrets/postgres.env ]; then
+  set -a
+  source /etc/vault/secrets/postgres.env
+  set +a
+  echo "Loaded /etc/vault/secrets/postgres.env"
+fi
+
+if command -v verify_vault_connection >/dev/null 2>&1; then
+  # Attempt AppRole login via env vars or mounted approle file
+  if [ -n "${VAULT_ROLE_ID:-}" ] && [ -n "${VAULT_SECRET_ID:-}" ]; then
+    login_with_approle "$VAULT_ROLE_ID" "$VAULT_SECRET_ID" || true
+  elif [ -f /etc/vault/approle_pg-role.json ]; then
+    if command -v jq >/dev/null 2>&1; then
+      role_id=$(jq -r '.role_id' /etc/vault/approle_pg-role.json)
+      secret_id=$(jq -r '.secret_id' /etc/vault/approle_pg-role.json)
+      login_with_approle "$role_id" "$secret_id" || true
+    fi
+  fi
+
+  if verify_vault_connection 2>/dev/null; then
+    echo "Fetching secrets from Vault..."
+
+    if POSTGRES_PASSWORD=$(fetch_secret_field "pg/postgres" "postgres_password" 2>/dev/null); then
+      echo "✓ Fetched db-admin-password from Vault"
+      export POSTGRES_PASSWORD
     else
-      echo "⚠ Infisical not reachable, using environment variables"
+      echo "⚠ Using environment db-admin-password"
+    fi
+
+    if REPLICATION_PASSWORD=$(fetch_secret_field "pg/replication" "replication_password" 2>/dev/null); then
+      echo "✓ Fetched db-replication-password from Vault"
+      export REPLICATION_PASSWORD
+    else
+      echo "⚠ Using environment db-replication-password"
     fi
   else
-    echo "ℹ Infisical not configured"
+    echo "⚠ Vault not reachable, using environment variables"
   fi
+else
+  echo "ℹ Vault helper not present"
 fi
 
 # Validate required passwords

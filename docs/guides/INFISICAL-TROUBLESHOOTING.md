@@ -1,14 +1,20 @@
-# Infisical Integration - Troubleshooting Guide
+# Deprecated: Infisical (replaced by Vault)
 
-> **Note**: Infisical runs from the official `infisical/infisical:latest` image. There is no custom `Dockerfile.infisical` — do not look for or try to rebuild a local image.
+This legacy file is deprecated. See docs/getting-started/VAULT-QuickStart.md and docs/VAULT-INTEGRATION.md for current instructions.
+
+---
+
+# Vault Integration - Troubleshooting Guide
+
+> **Note**: Vault runs from the official `vault/vault:latest` image. There is no custom `Dockerfile.vault` — do not look for or try to rebuild a local image.
 
 ## Common Issues and Solutions
 
-### 1. Infisical Container Won't Start
+### 1. Vault Container Won't Start
 
 **Symptoms**:
 ```
-docker ps | grep infisical
+docker ps | grep vault
 # No output or container keeps restarting
 ```
 
@@ -16,25 +22,25 @@ docker ps | grep infisical
 
 #### A. Database Backend Not Ready
 
-> **Environment variable note**: Infisical uses `DB_CONNECTION_URI` for its database connection string. Older documentation or examples may refer to `DATABASE_URL` — this is not the correct variable name for the official Infisical image. Use `DB_CONNECTION_URI`.
+> **Environment variable note**: Vault uses `DB_CONNECTION_URI` for its database connection string. Older documentation or examples may refer to `DATABASE_URL` — this is not the correct variable name for the official Vault image. Use `DB_CONNECTION_URI`.
 
 ```bash
-# Check if infisical-postgres is running
-docker ps | grep infisical-postgres
+# Check if vault-postgres is running
+docker ps | grep vault-postgres
 
 # If not running, check logs
-docker logs infisical-postgres
+docker logs vault-postgres
 
 # If it's in crash loop, check volume
-docker volume ls | grep infisical-db
+docker volume ls | grep vault-db
 
 # Solution: Destroy and recreate
-docker stop infisical infisical-postgres
-docker rm infisical infisical-postgres
-docker volume rm infisical-db-data infisical-data
-terraform apply -var-file="ha-test.tfvars" -target=docker_container.infisical_postgres
+docker stop vault vault-postgres
+docker rm vault vault-postgres
+docker volume rm vault-db-data vault-data
+terraform apply -var-file="ha-test.tfvars" -target=docker_container.vault_postgres
 sleep 30
-terraform apply -var-file="ha-test.tfvars" -target=docker_container.infisical
+terraform apply -var-file="ha-test.tfvars" -target=docker_container.vault
 ```
 
 #### B. Port Conflict
@@ -47,7 +53,7 @@ lsof -i :8020
 
 # Solution: Either stop conflicting service or use different port
 terraform apply -var-file="ha-test.tfvars" \
-  -var="infisical_port=8030"
+  -var="vault_port=8030"
 ```
 
 #### C. Out of Disk Space
@@ -63,48 +69,48 @@ docker image prune
 # Solution: Increase available disk space
 ```
 
-### 1b. Infisical Restart Loop Due to Missing Redis
+### 1b. Vault Restart Loop Due to Missing Redis
 
-Infisical requires a Redis instance. The stack includes `infisical-redis` (Redis 7 Alpine). If Redis is unavailable, Infisical will crash-loop immediately.
+Vault requires a Redis instance. The stack includes `vault-redis` (Redis 7 Alpine). If Redis is unavailable, Vault will crash-loop immediately.
 
 **Check:**
 ```bash
-# Verify infisical-redis is running
-docker ps | grep infisical-redis
+# Verify vault-redis is running
+docker ps | grep vault-redis
 
-# Confirm Redis is reachable from Infisical
-docker exec infisical sh -c 'redis-cli -h infisical-redis ping'
+# Confirm Redis is reachable from Vault
+docker exec vault sh -c 'redis-cli -h vault-redis ping'
 # Expected: PONG
 ```
 
-**If infisical-redis is missing:**
+**If vault-redis is missing:**
 ```bash
-# Re-apply the full stack — infisical-redis is managed by Terraform
+# Re-apply the full stack — vault-redis is managed by Terraform
 terraform apply -var-file="ha-test.tfvars"
 
-# Bring up infisical-redis first, then infisical
-terraform apply -var-file="ha-test.tfvars" -target=docker_container.infisical_redis
+# Bring up vault-redis first, then vault
+terraform apply -var-file="ha-test.tfvars" -target=docker_container.vault_redis
 sleep 10
-terraform apply -var-file="ha-test.tfvars" -target=docker_container.infisical
+terraform apply -var-file="ha-test.tfvars" -target=docker_container.vault
 ```
 
-**If infisical-redis exists but Infisical still fails:**
+**If vault-redis exists but Vault still fails:**
 ```bash
 # Check Redis logs for errors
-docker logs infisical-redis
+docker logs vault-redis
 
 # Confirm both containers share pg-ha-network
-docker network inspect pg-ha-network | grep -E '"Name"|infisical'
+docker network inspect pg-ha-network | grep -E '"Name"|vault'
 ```
 
-### 2. PostgreSQL Nodes Can't Connect to Infisical
+### 2. PostgreSQL Nodes Can't Connect to Vault
 
 **Symptoms**:
 ```bash
 # Container logs show connection errors
-docker logs pg-node-1 | grep -i "infisical\|connection refused"
+docker logs pg-node-1 | grep -i "vault\|connection refused"
 
-# Output: "Connection refused to infisical:8020"
+# Output: "Connection refused to vault:8020"
 ```
 
 **Root Causes & Solutions**:
@@ -113,10 +119,10 @@ docker logs pg-node-1 | grep -i "infisical\|connection refused"
 
 ```bash
 # Test from PostgreSQL container
-docker exec pg-node-1 bash -c 'curl -v http://infisical:8020/api/status'
+docker exec pg-node-1 bash -c 'curl -v http://vault:8020/api/status'
 
 # If connection refused:
-# 1. Verify Infisical is running on pg-ha-network
+# 1. Verify Vault is running on pg-ha-network
 docker network inspect pg-ha-network
 
 # 2. Verify container is connected to network
@@ -127,16 +133,16 @@ docker network disconnect pg-ha-network pg-node-1
 docker network connect pg-ha-network pg-node-1
 ```
 
-#### B. Infisical API Not Ready
+#### B. Vault API Not Ready
 
 ```bash
-# Check Infisical health
+# Check Vault health
 curl http://localhost:8020/api/status
 
 # If timeout or error, check container logs
-docker logs infisical | tail -50
+docker logs vault | tail -50
 
-# Solution: Wait for Infisical to initialize (typically 15-30 seconds)
+# Solution: Wait for Vault to initialize (typically 15-30 seconds)
 sleep 60
 terraform apply -var-file="ha-test.tfvars"
 ```
@@ -148,11 +154,11 @@ terraform apply -var-file="ha-test.tfvars"
 terraform output generated_passwords
 
 # Check if API key is in Terraform
-echo $TF_VAR_infisical_api_key
+echo $TF_VAR_vault_api_key
 
 # If empty:
-export TF_VAR_infisical_api_key="your-key-here"
-export TF_VAR_infisical_project_id="your-project-id-here"
+export TF_VAR_vault_api_key="your-key-here"
+export TF_VAR_vault_project_id="your-project-id-here"
 
 # Re-apply Terraform
 terraform apply -var-file="ha-test.tfvars"
@@ -189,15 +195,15 @@ vim entrypoint-pgbouncer.sh
 #### B. Secret Fetching Failed
 
 ```bash
-# Check if Infisical secrets exist
-curl -H "Authorization: Bearer $TF_VAR_infisical_api_key" \
-  -H "X-Infisical-Project-ID: $TF_VAR_infisical_project_id" \
+# Check if Vault secrets exist
+curl -H "Authorization: Bearer $TF_VAR_vault_api_key" \
+  -H "X-Vault-Project-ID: $TF_VAR_vault_project_id" \
   http://localhost:8020/api/v1/secrets/db-admin-password
 
 # If 404 not found, create the secret:
 curl -X POST http://localhost:8020/api/v1/secrets \
-  -H "Authorization: Bearer $TF_VAR_infisical_api_key" \
-  -H "X-Infisical-Project-ID: $TF_VAR_infisical_project_id" \
+  -H "Authorization: Bearer $TF_VAR_vault_api_key" \
+  -H "X-Vault-Project-ID: $TF_VAR_vault_project_id" \
   -H "Content-Type: application/json" \
   -d '{
     "key": "db-admin-password",
@@ -233,17 +239,17 @@ psql -h localhost -p 5432 -U pgadmin -d postgres
 
 **Root Causes & Solutions**:
 
-#### A. Password Not Updated in Both Container and Infisical
+#### A. Password Not Updated in Both Container and Vault
 
 ```bash
 # Check what password PostgreSQL is using
 docker exec pg-node-1 env | grep POSTGRES_PASSWORD
 
-# Check what password Infisical has
+# Check what password Vault has
 curl -H "Authorization: Bearer $API_KEY" \
   http://localhost:8020/api/v1/secrets/db-admin-password
 
-# If they don't match, update Infisical and restart containers
+# If they don't match, update Vault and restart containers
 curl -X PUT http://localhost:8020/api/v1/secrets/db-admin-password \
   -H "Authorization: Bearer $API_KEY" \
   -d '{"value": "'"$(docker exec pg-node-1 env | grep POSTGRES_PASSWORD | cut -d= -f2)"'"}'
@@ -296,10 +302,10 @@ docker logs pg-node-1 | grep -i "password"
 #### A. Containers Not Restarted After Secret Update
 
 ```bash
-# Update secret in Infisical
+# Update secret in Vault
 curl -X PUT http://localhost:8020/api/v1/secrets/db-admin-password \
   -H "Authorization: Bearer $API_KEY" \
-  -H "X-Infisical-Project-ID: $PROJECT_ID" \
+  -H "X-Vault-Project-ID: $PROJECT_ID" \
   -d '{"value": "new-password"}'
 
 # Restart containers to fetch new secret
@@ -322,10 +328,10 @@ set -e
 
 echo "Starting zero-downtime password rotation..."
 
-# 1. Update Infisical secret
+# 1. Update Vault secret
 curl -X PUT http://localhost:8020/api/v1/secrets/db-admin-password \
-  -H "Authorization: Bearer $TF_VAR_infisical_api_key" \
-  -H "X-Infisical-Project-ID: $TF_VAR_infisical_project_id" \
+  -H "Authorization: Bearer $TF_VAR_vault_api_key" \
+  -H "X-Vault-Project-ID: $TF_VAR_vault_project_id" \
   -d '{"value": "new-password-here"}'
 
 # 2. Restart replicas first (won't cause failover)
@@ -347,41 +353,41 @@ psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1;"
 echo "Password rotation completed successfully!"
 ```
 
-### 6. Infisical Database Becomes Corrupted
+### 6. Vault Database Becomes Corrupted
 
 **Symptoms**:
 ```bash
-# Infisical starts but API returns 500 errors
+# Vault starts but API returns 500 errors
 curl http://localhost:8020/api/status
 # HTTP 500 Internal Server Error
 
-# Or Infisical keeps crashing
-docker logs infisical | grep -i "error\|panic"
+# Or Vault keeps crashing
+docker logs vault | grep -i "error\|panic"
 ```
 
 **Solutions**:
 
 ```bash
 # Option 1: Backup and restore (if you have previous backup)
-docker volume create infisical-db-backup
-docker run --rm -v infisical-db-data:/source -v infisical-db-backup:/backup \
+docker volume create vault-db-backup
+docker run --rm -v vault-db-data:/source -v vault-db-backup:/backup \
   busybox sh -c 'cp -av /source/. /backup/'
 
 # Option 2: Fresh start (data loss)
 docker-compose down
-docker volume rm infisical-db-data infisical-data
+docker volume rm vault-db-data vault-data
 docker system prune
 
 terraform refresh -var-file="ha-test.tfvars"
 terraform apply -var-file="ha-test.tfvars"
 ```
 
-### 7. Infisical Memory/CPU Issues
+### 7. Vault Memory/CPU Issues
 
 **Symptoms**:
 ```bash
-# Infisical using excessive resources
-docker stats | grep infisical
+# Vault using excessive resources
+docker stats | grep vault
 
 # High CPU or memory usage
 ```
@@ -390,18 +396,18 @@ docker stats | grep infisical
 
 ```bash
 # Check what's consuming resources
-docker exec infisical ps aux
+docker exec vault ps aux
 
 # Limit resource usage in Terraform (if needed)
-# Add to docker_container.infisical:
+# Add to docker_container.vault:
 # memory = 512  # MB
 # memory_swap = 1024  # MB
 
 # Restart with fresh state
-docker restart infisical
+docker restart vault
 
 # Check for memory leaks in logs
-docker logs infisical | grep -i "memory\|gc\|garbage"
+docker logs vault | grep -i "memory\|gc\|garbage"
 ```
 
 ### 8. Performance Issues
@@ -409,29 +415,29 @@ docker logs infisical | grep -i "memory\|gc\|garbage"
 **Symptoms**:
 ```bash
 # Slow secret fetching
-# Connection timeouts to Infisical
+# Connection timeouts to Vault
 # High latency on PostgreSQL connections
 ```
 
 **Optimization Steps**:
 
 ```bash
-# 1. Monitor Infisical performance
+# 1. Monitor Vault performance
 curl -s http://localhost:8020/api/status | jq '.'
 
 # 2. Check network latency between containers
-docker exec pg-node-1 ping -c 5 infisical
+docker exec pg-node-1 ping -c 5 vault
 
 # 3. Monitor Docker daemon
 docker system df
 docker stats
 
-# 4. Increase Infisical timeout in entrypoint scripts
+# 4. Increase Vault timeout in entrypoint scripts
 # Edit entrypoint-patroni.sh and increase timeout values
 # Change: curl ... -m 10  to  curl ... -m 30
 
 # 5. Add retries with backoff
-# Already implemented in infisical-secrets.sh:
+# Already implemented in vault-secrets.sh:
 # MAX_RETRIES=5, RETRY_DELAY=2
 ```
 
@@ -443,8 +449,8 @@ docker stats
 #!/bin/bash
 echo "=== System Health Check ==="
 
-# Infisical
-echo "1. Infisical API:"
+# Vault
+echo "1. Vault API:"
 curl -s http://localhost:8020/api/status || echo "FAILED"
 
 # PostgreSQL
@@ -461,11 +467,11 @@ curl -s http://localhost:8008 | jq '.members[] | {name, role, state}' || echo "F
 
 # Docker Volumes
 echo -e "\n5. Docker Volumes:"
-docker volume ls | grep -E "infisical|postgres|pgbouncer"
+docker volume ls | grep -E "vault|postgres|pgbouncer"
 
 # Network
 echo -e "\n6. Network Connectivity:"
-docker exec pg-node-1 curl -s http://infisical:8020/api/status || echo "FAILED"
+docker exec pg-node-1 curl -s http://vault:8020/api/status || echo "FAILED"
 ```
 
 ### Collect Debugging Information
@@ -480,8 +486,8 @@ timestamp=$(date +%Y%m%d_%H%M%S)
 echo "Collecting debug logs at $timestamp..."
 
 # Container logs
-docker logs infisical > debug-logs/infisical_$timestamp.log 2>&1
-docker logs infisical-postgres > debug-logs/infisical-postgres_$timestamp.log 2>&1
+docker logs vault > debug-logs/vault_$timestamp.log 2>&1
+docker logs vault-postgres > debug-logs/vault-postgres_$timestamp.log 2>&1
 docker logs pg-node-1 > debug-logs/pg-node-1_$timestamp.log 2>&1
 docker logs pgbouncer-1 > debug-logs/pgbouncer-1_$timestamp.log 2>&1
 
@@ -502,13 +508,13 @@ echo "Compressed: debug-logs_$timestamp.tar.gz"
 
 1. **Check Logs First**:
    ```bash
-   docker logs infisical | tail -100
+   docker logs vault | tail -100
    docker logs pg-node-1 | grep -i error
    ```
 
 2. **Review This Guide**: Most issues are covered above
 
-3. **Check Infisical Docs**: https://infisical.com/docs
+3. **Check Vault Docs**: https://vault.com/docs
 
 4. **Enable Debug Logging**:
    ```bash
@@ -518,9 +524,9 @@ echo "Compressed: debug-logs_$timestamp.tar.gz"
 
 5. **Recreate Minimal Setup**:
    ```bash
-   # Test Infisical alone
-   terraform apply -target=docker_container.infisical_postgres
-   terraform apply -target=docker_container.infisical
+   # Test Vault alone
+   terraform apply -target=docker_container.vault_postgres
+   terraform apply -target=docker_container.vault
    ```
 
 ---

@@ -1,18 +1,24 @@
-# Infisical Integration Guide
+# Deprecated: Infisical (replaced by Vault)
+
+This legacy file is deprecated. See docs/getting-started/VAULT-QuickStart.md and docs/VAULT-INTEGRATION.md for current instructions.
+
+---
+
+# Vault Integration Guide
 
 ## Overview
 
-This guide documents the full integration of **Infisical** (open-source secrets management platform) with the PostgreSQL HA cluster infrastructure (Patroni + PgBouncer). Infisical provides secure, encrypted secret management with rotation capabilities and audit logs.
+This guide documents the full integration of **Vault** (open-source secrets management platform) with the PostgreSQL HA cluster infrastructure (Patroni + PgBouncer). Vault provides secure, encrypted secret management with rotation capabilities and audit logs.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Infisical Service                        │
+│                    Vault Service                        │
 │  - Port: 8020                                               │
 │  - Stores: DB passwords, replication creds, API keys        │
 │  - Database: PostgreSQL (internal)                          │
-│  - Volume: /var/lib/infisical (persistent)                 │
+│  - Volume: /var/lib/vault (persistent)                 │
 └─────────────────────────────────────────────────────────────┘
         ↓           ↓           ↓           ↓
     ┌──────┐   ┌──────┐   ┌──────────┐  ┌─────────┐
@@ -21,12 +27,12 @@ This guide documents the full integration of **Infisical** (open-source secrets 
     │ (Pri)│   │(Rep) │   │(Rep)     │  │         │
     └──────┘   └──────┘   └──────────┘  └─────────┘
        ↑          ↑           ↑            ↑
-    [Fetch secrets from Infisical via REST API]
+    [Fetch secrets from Vault via REST API]
 ```
 
 ## Secrets Management
 
-### Stored Secrets in Infisical
+### Stored Secrets in Vault
 
 | Secret Name | Purpose | Generated Value | Rotation |
 |-------------|---------|-----------------|----------|
@@ -35,7 +41,7 @@ This guide documents the full integration of **Infisical** (open-source secrets 
 | `db-replication-password` | PostgreSQL replication password | *Auto-generated* | Recommended |
 | `pgbouncer-admin-user` | PgBouncer admin username | `pgadmin` | Manual |
 | `pgbouncer-admin-password` | PgBouncer admin password | *Auto-generated* | Recommended |
-| `infisical-api-key` | Master API key for fetching secrets | *Generated on first run* | Before rotation |
+| `vault-api-key` | Master API key for fetching secrets | *Generated on first run* | Before rotation |
 
 ### Password Generation
 
@@ -46,18 +52,18 @@ On first deployment, Terraform generates secure passwords:
 
 ## Deployment Architecture
 
-### 1. Infisical Service Setup
+### 1. Vault Service Setup
 
-**Container**: `infisical:latest`
+**Container**: `vault:latest`
 **Port**: 8020 (HTTP API)
-**Volume**: `/var/lib/infisical` (persistent data)
+**Volume**: `/var/lib/vault` (persistent data)
 **Network**: `pg-ha-network`
 
-Infisical runs as a standalone secrets server in the Docker network:
+Vault runs as a standalone secrets server in the Docker network:
 
 ```bash
-docker ps | grep infisical
-infisical [port 8020]
+docker ps | grep vault
+vault [port 8020]
 ```
 
 ### 2. Secret Retrieval Flow
@@ -65,17 +71,17 @@ infisical [port 8020]
 #### PostgreSQL/Patroni Flow:
 ```
 1. Container starts (entrypoint-patroni.sh)
-2. Call Infisical API: GET /api/v1/secrets/db-admin-password
+2. Call Vault API: GET /api/v1/secrets/db-admin-password
 3. Store in environment: export POSTGRES_PASSWORD=<secret>
 4. Initialize database with Patroni
-5. Set replication password from Infisical
+5. Set replication password from Vault
 ```
 
 #### PgBouncer Flow:
 ```
 1. Container starts (entrypoint-pgbouncer.sh)
-2. Call Infisical API: GET /api/v1/secrets/pgbouncer-admin-password
-3. Call Infisical API: GET /api/v1/secrets/db-replication-password
+2. Call Vault API: GET /api/v1/secrets/pgbouncer-admin-password
+3. Call Vault API: GET /api/v1/secrets/db-replication-password
 4. Generate userlist.txt dynamically with fetched credentials
 5. Start PgBouncer with generated config
 ```
@@ -88,16 +94,16 @@ infisical [port 8020]
 ```bash
 POSTGRES_USER=${var.postgres_user}
 POSTGRES_PASSWORD=${var.postgres_password}  # Initially from Terraform
-INFISICAL_API_KEY=${var.infisical_api_key}
-INFISICAL_PROJECT_ID=${var.infisical_project_id}
-INFISICAL_ENVIRONMENT=${var.infisical_environment}
+Vault_API_KEY=${var.vault_api_key}
+Vault_PROJECT_ID=${var.vault_project_id}
+Vault_ENVIRONMENT=${var.vault_environment}
 ```
 
 **Entrypoint Changes** (`entrypoint-patroni.sh`):
 ```bash
-# 1. Fetch secrets from Infisical
-POSTGRES_PASSWORD=$(fetch_secret_from_infisical "db-admin-password")
-REPLICATION_PASSWORD=$(fetch_secret_from_infisical "db-replication-password")
+# 1. Fetch secrets from Vault
+POSTGRES_PASSWORD=$(fetch_secret_from_vault "db-admin-password")
+REPLICATION_PASSWORD=$(fetch_secret_from_vault "db-replication-password")
 
 # 2. Export for initialization
 export POSTGRES_PASSWORD REPLICATION_PASSWORD
@@ -110,13 +116,13 @@ export POSTGRES_PASSWORD REPLICATION_PASSWORD
 **Entrypoint Changes** (`entrypoint-pgbouncer.sh`):
 ```bash
 # 1. Fetch all required secrets
-pgbouncer_admin_pass=$(fetch_secret_from_infisical "pgbouncer-admin-password")
-db_admin_pass=$(fetch_secret_from_infisical "db-admin-password")
+pgbouncer_admin_pass=$(fetch_secret_from_vault "pgbouncer-admin-password")
+db_admin_pass=$(fetch_secret_from_vault "db-admin-password")
 
 # 2. Generate userlist.txt dynamically
 cat > /etc/pgbouncer/userlist.txt <<EOF
 "pgadmin" "$pgbouncer_admin_pass"
-"replicator" "$(fetch_secret_from_infisical "db-replication-password")"
+"replicator" "$(fetch_secret_from_vault "db-replication-password")"
 EOF
 
 # 3. Start PgBouncer
@@ -129,34 +135,34 @@ pgbouncer /etc/pgbouncer/pgbouncer.ini
 
 **New Variables**:
 ```hcl
-variable "infisical_enabled" {
+variable "vault_enabled" {
   type        = bool
   default     = true
-  description = "Enable Infisical secrets management"
+  description = "Enable Vault secrets management"
 }
 
-variable "infisical_port" {
+variable "vault_port" {
   type        = number
   default     = 8020
-  description = "Infisical API port"
+  description = "Vault API port"
 }
 
-variable "infisical_project_id" {
+variable "vault_project_id" {
   type        = string
   sensitive   = true
-  description = "Infisical project ID"
+  description = "Vault project ID"
 }
 
-variable "infisical_environment" {
+variable "vault_environment" {
   type        = string
   default     = "dev"
-  description = "Infisical environment (dev, staging, production)"
+  description = "Vault environment (dev, staging, production)"
 }
 
-variable "infisical_api_key" {
+variable "vault_api_key" {
   type        = string
   sensitive   = true
-  description = "Infisical API key for service authentication"
+  description = "Vault API key for service authentication"
 }
 
 variable "generate_new_passwords" {
@@ -169,32 +175,32 @@ variable "generate_new_passwords" {
 ### 2. Terraform Values (`ha-test.tfvars`)
 
 ```hcl
-infisical_enabled        = true
-infisical_port          = 8020
-infisical_environment   = "dev"
-infisical_project_id    = "project-id-from-infisical"
-infisical_api_key       = "k8Jwk...secure-key..."  # Set via env vars or vault
+vault_enabled        = true
+vault_port          = 8020
+vault_environment   = "dev"
+vault_project_id    = "project-id-from-vault"
+vault_api_key       = "k8Jwk...secure-key..."  # Set via env vars or vault
 generate_new_passwords  = true
 ```
 
-### 3. New Entrypoint Script (`entrypoint-infisical-secrets.sh`)
+### 3. New Entrypoint Script (`entrypoint-vault-secrets.sh`)
 
 Helper script for fetching secrets:
 ```bash
 #!/bin/bash
-# Fetch secret from Infisical API
-fetch_secret_from_infisical() {
+# Fetch secret from Vault API
+fetch_secret_from_vault() {
   local secret_key=$1
-  local api_key=${INFISICAL_API_KEY}
-  local project_id=${INFISICAL_PROJECT_ID}
-  local environment=${INFISICAL_ENVIRONMENT:-dev}
-  local infisical_host=${INFISICAL_HOST:-https://infisical:8020}
+  local api_key=${Vault_API_KEY}
+  local project_id=${Vault_PROJECT_ID}
+  local environment=${Vault_ENVIRONMENT:-dev}
+  local vault_host=${Vault_HOST:-https://vault:8020}
 
   curl -s -X GET \
-    "${infisical_host}/api/v1/secrets/${secret_key}" \
+    "${vault_host}/api/v1/secrets/${secret_key}" \
     -H "Authorization: Bearer ${api_key}" \
-    -H "X-Infisical-Project-ID: ${project_id}" \
-    -H "X-Infisical-Environment: ${environment}" \
+    -H "X-Vault-Project-ID: ${project_id}" \
+    -H "X-Vault-Environment: ${environment}" \
     | jq -r '.secret.value'
 }
 ```
@@ -203,37 +209,37 @@ fetch_secret_from_infisical() {
 
 ### Phase 1: Initial Deployment
 
-#### Step 1: Set Infisical Configuration
+#### Step 1: Set Vault Configuration
 
 ```bash
-# Set Infisical credentials as environment variables
-export INFISICAL_PROJECT_ID="your-project-id"
-export INFISICAL_API_KEY="your-api-key"
+# Set Vault credentials as environment variables
+export Vault_PROJECT_ID="your-project-id"
+export Vault_API_KEY="your-api-key"
 
 # Or update ha-test.tfvars:
 cat >> ha-test.tfvars <<EOF
-infisical_enabled = true
-infisical_project_id = "prj-xxxxx"
-infisical_api_key = "k8Jwk..."
+vault_enabled = true
+vault_project_id = "prj-xxxxx"
+vault_api_key = "k8Jwk..."
 EOF
 ```
 
-#### Step 2: Deploy Infisical Container
+#### Step 2: Deploy Vault Container
 
 ```bash
-terraform apply -var-file="ha-test.tfvars" -target=docker_container.infisical
+terraform apply -var-file="ha-test.tfvars" -target=docker_container.vault
 ```
 
 This creates:
-- Infisical service running on port 8020
-- PostgreSQL backend for Infisical
+- Vault service running on port 8020
+- PostgreSQL backend for Vault
 - Network connectivity to pg-ha-network
 
-#### Step 3: Initialize Secrets in Infisical
+#### Step 3: Initialize Secrets in Vault
 
 ```bash
 # Run Terraform to create initial secrets
-terraform apply -var-file="ha-test.tfvars" -target=local_exec.infisical_init_secrets
+terraform apply -var-file="ha-test.tfvars" -target=local_exec.vault_init_secrets
 ```
 
 This generates and stores:
@@ -251,25 +257,25 @@ terraform apply -var-file="ha-test.tfvars"
 
 Once deployment is complete:
 
-1. **PostgreSQL nodes** fetch secrets from Infisical on startup
+1. **PostgreSQL nodes** fetch secrets from Vault on startup
 2. **PgBouncer nodes** generate configuration from fetched secrets
 3. All credentials are **never stored** in config files
-4. Secrets are **encrypted at rest** in Infisical
+4. Secrets are **encrypted at rest** in Vault
 
 ## Security Best Practices
 
 ### 1. API Key Management
-- Store `infisical_api_key` in:
+- Store `vault_api_key` in:
   - **CI/CD**: GitHub Secrets, GitLab CI, etc.
   - **Local Dev**: `.envrc` (git-ignored) or environment variable
   - **Production**: Vault, AWS Secrets Manager, Azure Key Vault
 
 ```bash
 # Never commit to git:
-echo "infisical_api_key = \"k8Jwk...\"" >> ha-test.tfvars  # ❌ DO NOT COMMIT
+echo "vault_api_key = \"k8Jwk...\"" >> ha-test.tfvars  # ❌ DO NOT COMMIT
 
 # Use environment variable instead:
-export TF_VAR_infisical_api_key="k8Jwk..."  # ✅ SECURE
+export TF_VAR_vault_api_key="k8Jwk..."  # ✅ SECURE
 terraform apply -var-file="ha-test.tfvars"
 ```
 
@@ -277,9 +283,9 @@ terraform apply -var-file="ha-test.tfvars"
 - Rotate passwords every 90 days:
 
 ```bash
-# Update secret in Infisical UI or via API
-curl -X PUT https://infisical:8020/api/v1/secrets/db-admin-password \
-  -H "Authorization: Bearer $INFISICAL_API_KEY" \
+# Update secret in Vault UI or via API
+curl -X PUT https://vault:8020/api/v1/secrets/db-admin-password \
+  -H "Authorization: Bearer $Vault_API_KEY" \
   -d '{"value": "new-secure-password"}'
 
 # Restart affected containers
@@ -287,20 +293,20 @@ docker restart pg-node-1 pg-node-2 pg-node-3 pgbouncer-1 pgbouncer-2
 ```
 
 ### 3. Network Isolation
-- Infisical listens only on `pg-ha-network`
-- No external access to Infisical port 8020
+- Vault listens only on `pg-ha-network`
+- No external access to Vault port 8020
 - Use strong authentication between containers
 
 ### 4. Audit Logging
-- Enable Infisical audit logs:
+- Enable Vault audit logs:
 
 ```bash
-docker logs infisical | grep "secret_accessed"
+docker logs vault | grep "secret_accessed"
 ```
 
 ## Testing the Integration
 
-### Test 1: Verify Infisical is Running
+### Test 1: Verify Vault is Running
 
 ```bash
 curl http://localhost:8020/api/v1/health
@@ -312,18 +318,18 @@ curl http://localhost:8020/api/v1/health
 ```bash
 # From inside a container:
 docker exec pg-node-1 bash -c '
-  curl -X GET http://infisical:8020/api/v1/secrets/db-admin-password \
-    -H "Authorization: Bearer $INFISICAL_API_KEY" \
-    -H "X-Infisical-Project-ID: $INFISICAL_PROJECT_ID"
+  curl -X GET http://vault:8020/api/v1/secrets/db-admin-password \
+    -H "Authorization: Bearer $Vault_API_KEY" \
+    -H "X-Vault-Project-ID: $Vault_PROJECT_ID"
 '
 ```
 
 ### Test 3: Connect via PgBouncer
 
 ```bash
-# Fetch password from Infisical first
+# Fetch password from Vault first
 DB_PASSWORD=$(curl -s http://localhost:8020/api/v1/secrets/db-admin-password \
-  -H "Authorization: Bearer $INFISICAL_API_KEY" | jq -r '.value')
+  -H "Authorization: Bearer $Vault_API_KEY" | jq -r '.value')
 
 # Connect
 psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1;"
@@ -334,7 +340,7 @@ psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1;"
 
 ```bash
 # Check PgBouncer logs for secret retrieval
-docker logs pgbouncer-1 | grep "infisical"
+docker logs pgbouncer-1 | grep "vault"
 
 # Check PostgreSQL/Patroni logs
 docker logs pg-node-1 | grep -i "password"
@@ -342,25 +348,25 @@ docker logs pg-node-1 | grep -i "password"
 
 ## Troubleshooting
 
-### Issue: "Connection refused" to Infisical
+### Issue: "Connection refused" to Vault
 
 ```bash
-# Check if Infisical container is running
-docker ps | grep infisical
+# Check if Vault container is running
+docker ps | grep vault
 
 # Verify network connectivity
-docker exec pg-node-1 curl http://infisical:8020/api/v1/health
+docker exec pg-node-1 curl http://vault:8020/api/v1/health
 ```
 
 ### Issue: "Unauthorized" when fetching secrets
 
 ```bash
 # Verify API key is correct and still valid
-echo $INFISICAL_API_KEY
+echo $Vault_API_KEY
 
-# Check secret exists in Infisical
-curl -X GET http://infisical:8020/api/v1/secrets/db-admin-password \
-  -H "Authorization: Bearer $INFISICAL_API_KEY"
+# Check secret exists in Vault
+curl -X GET http://vault:8020/api/v1/secrets/db-admin-password \
+  -H "Authorization: Bearer $Vault_API_KEY"
 ```
 
 ### Issue: PostgreSQL fails to start with "invalid password"
@@ -374,17 +380,17 @@ docker logs pg-node-1 | grep -A5 "fetch_secret"
 
 ## Rotation Flow
 
-### Step 1: Update Secret in Infisical
+### Step 1: Update Secret in Vault
 ```bash
-curl -X PUT http://infisical:8020/api/v1/secrets/db-admin-password \
-  -H "Authorization: Bearer $INFISICAL_API_KEY" \
+curl -X PUT http://vault:8020/api/v1/secrets/db-admin-password \
+  -H "Authorization: Bearer $Vault_API_KEY" \
   -d '{"value": "new-secure-password-here"}'
 ```
 
 ### Step 2: Verify Change
 ```bash
-curl -X GET http://infisical:8020/api/v1/secrets/db-admin-password \
-  -H "Authorization: Bearer $INFISICAL_API_KEY"
+curl -X GET http://vault:8020/api/v1/secrets/db-admin-password \
+  -H "Authorization: Bearer $Vault_API_KEY"
 ```
 
 ### Step 3: Restart Affected Containers
@@ -404,10 +410,10 @@ psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1;"
 
 ## Integration Checklist
 
-- [ ] Infisical service deployed and running
-- [ ] PostgreSQL admin password stored in Infisical
-- [ ] Replication password stored in Infisical
-- [ ] PgBouncer admin password stored in Infisical
+- [ ] Vault service deployed and running
+- [ ] PostgreSQL admin password stored in Vault
+- [ ] Replication password stored in Vault
+- [ ] PgBouncer admin password stored in Vault
 - [ ] All PostgreSQL nodes fetch secrets on startup
 - [ ] All PgBouncer nodes generate configs from secrets
 - [ ] No hardcoded passwords in config files
@@ -415,12 +421,12 @@ psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1;"
 - [ ] API keys stored securely (not in git)
 - [ ] Rotation procedure tested and documented
 - [ ] Health checks verify secret retrieval
-- [ ] Audit logging enabled in Infisical
+- [ ] Audit logging enabled in Vault
 
 ## Recommended Reading
 
-- [Infisical Documentation](https://infisical.com/docs)
-- [Infisical API Reference](https://infisical.com/docs/api-reference/overview)
+- [Vault Documentation](https://vault.com/docs)
+- [Vault API Reference](https://vault.com/docs/api-reference/overview)
 - [Secrets Management Best Practices](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html)
 - [PostgreSQL Security](https://www.postgresql.org/docs/current/sql-syntax.html)
 
@@ -428,10 +434,10 @@ psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1;"
 
 For issues with the integration:
 
-1. Check [Infisical Docs](https://infisical.com)
-2. Review container logs: `docker logs infisical`
-3. Verify network communication: `docker exec pg-node-1 curl http://infisical:8020/api/v1/health`
-4. Test API key permissions in Infisical UI
+1. Check [Vault Docs](https://vault.com)
+2. Review container logs: `docker logs vault`
+3. Verify network communication: `docker exec pg-node-1 curl http://vault:8020/api/v1/health`
+4. Test API key permissions in Vault UI
 
 ---
 
@@ -439,4 +445,4 @@ For issues with the integration:
 **Status**: Complete Integration Guide
 **PostgreSQL Version**: 18.2
 **PgBouncer Version**: 18.3
-**Infisical Version**: Latest
+**Vault Version**: Latest

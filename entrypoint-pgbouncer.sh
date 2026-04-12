@@ -2,10 +2,10 @@
 set -e
 
 # ============================================================================
-# PgBouncer Entrypoint with Infisical Integration
+# PgBouncer Entrypoint with Vault Integration
 # ============================================================================
 
-echo "=== Starting PgBouncer with Infisical Integration ==="
+echo "=== Starting PgBouncer with Vault Integration ==="
 
 # Configuration defaults
 PGBOUNCER_CONFIG_DIR="${PGBOUNCER_CONFIG_DIR:-/etc/pgbouncer}"
@@ -21,71 +21,82 @@ chmod 750 "$PGBOUNCER_CONFIG_DIR" 2>/dev/null || true
 chmod 777 /var/run/postgresql 2>/dev/null || true
 
 # ============================================================================
-# SECTION 1: Infisical Secrets Integration
+# SECTION 1: Vault Secrets Integration
 # ============================================================================
 
-echo "=== Fetching credentials from Infisical ==="
+echo "=== Fetching credentials from Vault ==="
 
-# Set defaults from environment (fallback if Infisical fails)
+# Set defaults from environment (fallback if Vault fails)
 DB_ADMIN_USER="${DB_ADMIN_USER:-pgadmin}"
 DB_ADMIN_PASSWORD="${DB_ADMIN_PASSWORD}"
 DB_REPLICATION_USER="${DB_REPLICATION_USER:-replicator}"
 DB_REPLICATION_PASSWORD="${DB_REPLICATION_PASSWORD}"
 
-# Define helper function for fetching secrets (simplified version)
-fetch_secret_from_infisical() {
-  local secret_key=$1
-  local api_key="${INFISICAL_API_KEY}"
-  local project_id="${INFISICAL_PROJECT_ID}"
-  local environment="${INFISICAL_ENVIRONMENT:-dev}"
-  local host="${INFISICAL_HOST:-http://infisical:8020}"
-  
-  if [ -z "$api_key" ] || [ -z "$project_id" ]; then
-    echo "Infisical credentials not set, skipping secret fetch" >&2
-    return 1
-  fi
-  
-  curl -s -X GET \
-    "${host}/api/v1/secrets/${secret_key}" \
-    -H "Authorization: Bearer ${api_key}" \
-    -H "X-Infisical-Project-ID: ${project_id}" \
-    -H "X-Infisical-Environment: ${environment}" \
-    2>/dev/null | grep -o '"value":"[^"]*' | cut -d'"' -f4
-}
+# Source vault helper if present
+if [ -f /etc/vault/vault-secrets.sh ]; then
+  source /etc/vault/vault-secrets.sh
+elif [ -f /vault-secrets.sh ]; then
+  source /vault-secrets.sh
+fi
 
-# Attempt to fetch secrets from Infisical
-if [ -n "$INFISICAL_API_KEY" ] && [ -n "$INFISICAL_PROJECT_ID" ]; then
-  echo "Infisical integration enabled, fetching secrets..."
-  
-  # Fetch admin password
-  FETCHED_ADMIN_PASS=$(fetch_secret_from_infisical "db-admin-password" 2>/dev/null) || {
-    echo "WARNING: Could not fetch db-admin-password from Infisical"
-  }
-  if [ -n "$FETCHED_ADMIN_PASS" ]; then
-    DB_ADMIN_PASSWORD="$FETCHED_ADMIN_PASS"
-    echo "Successfully fetched db-admin-password from Infisical"
+# If Vault Agent rendered file exists, load and export variables as env
+if [ -f /etc/vault/secrets/postgres.env ]; then
+  set -a
+  source /etc/vault/secrets/postgres.env
+  set +a
+  echo "Loaded /etc/vault/secrets/postgres.env"
+fi
+
+# If POSTGRES_PASSWORD provided via rendered file, map to DB_ADMIN_PASSWORD
+if [ -n "${POSTGRES_PASSWORD:-}" ] && [ -z "${DB_ADMIN_PASSWORD:-}" ]; then
+  DB_ADMIN_PASSWORD="$POSTGRES_PASSWORD"
+  export DB_ADMIN_PASSWORD
+fi
+if [ -n "${REPLICATION_PASSWORD:-}" ] && [ -z "${DB_REPLICATION_PASSWORD:-}" ]; then
+  DB_REPLICATION_PASSWORD="$REPLICATION_PASSWORD"
+  export DB_REPLICATION_PASSWORD
+fi
+
+if command -v verify_vault_connection >/dev/null 2>&1; then
+  # Attempt AppRole login
+  if [ -n "${VAULT_ROLE_ID:-}" ] && [ -n "${VAULT_SECRET_ID:-}" ]; then
+    login_with_approle "$VAULT_ROLE_ID" "$VAULT_SECRET_ID" || true
+  elif [ -f /etc/vault/approle_pg-role.json ]; then
+    if command -v jq >/dev/null 2>&1; then
+      role_id=$(jq -r '.role_id' /etc/vault/approle_pg-role.json)
+      secret_id=$(jq -r '.secret_id' /etc/vault/approle_pg-role.json)
+      login_with_approle "$role_id" "$secret_id" || true
+    fi
   fi
-  
-  # Fetch replication password
-  FETCHED_REPL_PASS=$(fetch_secret_from_infisical "db-replication-password" 2>/dev/null) || {
-    echo "WARNING: Could not fetch db-replication-password from Infisical"
-  }
-  if [ -n "$FETCHED_REPL_PASS" ]; then
-    DB_REPLICATION_PASSWORD="$FETCHED_REPL_PASS"
-    echo "Successfully fetched db-replication-password from Infisical"
+
+  if verify_vault_connection 2>/dev/null; then
+    echo "Vault reachable, fetching secrets..."
+    FETCHED_ADMIN_PASS=$(fetch_secret_field "pg/postgres" "postgres_password" 2>/dev/null) || true
+    if [ -n "$FETCHED_ADMIN_PASS" ]; then
+      DB_ADMIN_PASSWORD="$FETCHED_ADMIN_PASS"
+      echo "Successfully fetched db-admin-password from Vault"
+    fi
+
+    FETCHED_REPL_PASS=$(fetch_secret_field "pg/replication" "replication_password" 2>/dev/null) || true
+    if [ -n "$FETCHED_REPL_PASS" ]; then
+      DB_REPLICATION_PASSWORD="$FETCHED_REPL_PASS"
+      echo "Successfully fetched db-replication-password from Vault"
+    fi
+  else
+    echo "Vault not reachable, using environment passwords"
   fi
 else
-  echo "Infisical not configured, using environment passwords"
+  echo "Vault helper not present, using environment passwords"
 fi
 
 # Validate that passwords are set
 if [ -z "$DB_ADMIN_PASSWORD" ]; then
-  echo "ERROR: DB_ADMIN_PASSWORD not set and could not be fetched from Infisical" >&2
+  echo "ERROR: DB_ADMIN_PASSWORD not set and could not be fetched from Vault" >&2
   exit 1
 fi
 
 if [ -z "$DB_REPLICATION_PASSWORD" ]; then
-  echo "ERROR: DB_REPLICATION_PASSWORD not set and could not be fetched from Infisical" >&2
+  echo "ERROR: DB_REPLICATION_PASSWORD not set and could not be fetched from Vault" >&2
   exit 1
 fi
 
@@ -100,7 +111,7 @@ echo "Generating userlist.txt with fetched credentials..."
 cat > "$PGBOUNCER_CONFIG_DIR/userlist.txt" <<EOF
 ;; PgBouncer User List - Generated by entrypoint-pgbouncer.sh
 ;; DO NOT EDIT - Changes will be overwritten on container restart
-;; Credentials sourced from Infisical secrets management
+;; Credentials sourced from Vault secrets management
 ;;
 ;; Format: "username" "password"
 ;; Passwords can be plain text, MD5 ("md5" prefix), or SCRAM-SHA-256

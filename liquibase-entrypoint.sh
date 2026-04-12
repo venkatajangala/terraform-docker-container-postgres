@@ -35,6 +35,49 @@ DB_PASSWORD="${DB_PASSWORD:-}"
 MAX_RETRIES="${MAX_RETRIES:-30}"
 RETRY_INTERVAL="${RETRY_INTERVAL:-5}"
 
+# Try to source Vault for DB credentials
+if [ -f /etc/vault/vault-secrets.sh ]; then
+  source /etc/vault/vault-secrets.sh
+elif [ -f /vault-secrets.sh ]; then
+  source /vault-secrets.sh
+fi
+
+# If Vault Agent rendered file exists, load and map to LIQUIBASE_PASSWORD
+if [ -f /etc/vault/secrets/postgres.env ]; then
+  set -a
+  source /etc/vault/secrets/postgres.env
+  set +a
+  if [ -n "${POSTGRES_PASSWORD:-}" ]; then
+    DB_PASSWORD="$POSTGRES_PASSWORD"
+    export DB_PASSWORD
+    LIQUIBASE_PASSWORD="$DB_PASSWORD"
+    export LIQUIBASE_PASSWORD
+    echo "Loaded Liquibase DB password from /etc/vault/secrets/postgres.env"
+  fi
+fi
+
+if command -v verify_vault_connection >/dev/null 2>&1; then
+  # Attempt AppRole login if possible
+  if [ -n "${VAULT_ROLE_ID:-}" ] && [ -n "${VAULT_SECRET_ID:-}" ]; then
+    login_with_approle "$VAULT_ROLE_ID" "$VAULT_SECRET_ID" || true
+  elif [ -f /etc/vault/approle_pg-role.json ]; then
+    if command -v jq >/dev/null 2>&1; then
+      role_id=$(jq -r '.role_id' /etc/vault/approle_pg-role.json)
+      secret_id=$(jq -r '.secret_id' /etc/vault/approle_pg-role.json)
+      login_with_approle "$role_id" "$secret_id" || true
+    fi
+  fi
+
+  if verify_vault_connection 2>/dev/null; then
+    DB_PASSWORD=$(fetch_secret_field "pg/postgres" "postgres_password" 2>/dev/null) || true
+    if [ -n "$DB_PASSWORD" ]; then
+      LIQUIBASE_PASSWORD="$DB_PASSWORD"
+      export LIQUIBASE_PASSWORD
+      echo "Fetched Liquibase DB password from Vault"
+    fi
+  fi
+fi
+
 # Health-check DB: use the postgres_liquibase session pool (routes to pg-node-1 only)
 # This ensures pg_is_in_recovery() checks the designated primary, not a round-robin replica
 DB_HEALTH_NAME="${DB_NAME}"

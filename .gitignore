@@ -13,3 +13,6 @@ terraform.tfstate.*.backup
 litellm.log
 litellm_config.yaml
 start-claude.sh
+
+# Vault AppRole bootstrap credentials — contain plaintext role_id/secret_id, never commit
+.vault-bootstrap/
