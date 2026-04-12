@@ -10,7 +10,7 @@ auto_auth {
   }
 
   sink "file" {
-    config = { path = "/var/run/vault-token/vault-token" }
+    config = { path = "/tmp/vault-token" }
   }
 }
 

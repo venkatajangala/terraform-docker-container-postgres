@@ -271,20 +271,26 @@ resource "docker_container" "pg_node" {
     read_only = true
   }
 
-  # Mount AppRole JSON for Vault (dev): allows container to login via AppRole
-  mounts {
-    target    = "/etc/vault/approle_pg-role.json"
-    source    = abspath("${path.module}/.vault-bootstrap/approle_pg-role.json")
-    type      = "bind"
-    read_only = true
+  # Mount AppRole JSON for Vault (dev): only when vault_enabled (file created by vault-bootstrap.sh)
+  dynamic "mounts" {
+    for_each = var.vault_enabled ? [1] : []
+    content {
+      target    = "/etc/vault/approle_pg-role.json"
+      source    = abspath("${path.module}/.vault-bootstrap/approle_pg-role.json")
+      type      = "bind"
+      read_only = true
+    }
   }
 
-  # Mount Vault Agent rendered secrets (shared volume)
-  mounts {
-    target    = "/etc/vault/secrets"
-    source    = docker_volume.vault_agent_secrets.name
-    type      = "volume"
-    read_only = true
+  # Mount Vault Agent rendered secrets (shared volume): only when vault_agent_enabled
+  dynamic "mounts" {
+    for_each = var.vault_agent_enabled ? [1] : []
+    content {
+      target    = "/etc/vault/secrets"
+      source    = docker_volume.vault_agent_secrets[0].name
+      type      = "volume"
+      read_only = true
+    }
   }
 
   # pgBackRest repository and logs
@@ -327,8 +333,10 @@ resource "docker_container" "pg_node" {
   stop_signal  = "SIGTERM"
   stop_timeout = 30
 
-  # Dependency on etcd, rendered patroni config, and vault init (approle file)
+  # Dependency on etcd, rendered patroni config, and vault init (approle file, when vault_enabled)
   depends_on = [docker_container.etcd, local_file.patroni_config, null_resource.vault_init]
+  # Note: null_resource.vault_init has count = var.vault_enabled ? 1 : 0.
+  # Terraform resolves this as "depend on all instances" — a no-op when count=0.
 }
 
 # ============================================================================
@@ -407,20 +415,26 @@ resource "docker_container" "pgbouncer" {
     read_only = true
   }
 
-  # Mount AppRole for Vault authentication (dev)
-  mounts {
-    target    = "/etc/vault/approle_pg-role.json"
-    source    = abspath("${path.module}/.vault-bootstrap/approle_pg-role.json")
-    type      = "bind"
-    read_only = true
+  # Mount AppRole for Vault authentication (dev): only when vault_enabled
+  dynamic "mounts" {
+    for_each = var.vault_enabled ? [1] : []
+    content {
+      target    = "/etc/vault/approle_pg-role.json"
+      source    = abspath("${path.module}/.vault-bootstrap/approle_pg-role.json")
+      type      = "bind"
+      read_only = true
+    }
   }
 
-  # Mount Vault Agent rendered secrets (shared volume)
-  mounts {
-    target    = "/etc/vault/secrets"
-    source    = docker_volume.vault_agent_secrets.name
-    type      = "volume"
-    read_only = true
+  # Mount Vault Agent rendered secrets (shared volume): only when vault_agent_enabled
+  dynamic "mounts" {
+    for_each = var.vault_agent_enabled ? [1] : []
+    content {
+      target    = "/etc/vault/secrets"
+      source    = docker_volume.vault_agent_secrets[0].name
+      type      = "volume"
+      read_only = true
+    }
   }
 
   mounts {

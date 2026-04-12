@@ -27,7 +27,7 @@ resource "docker_container" "vault_agent" {
 
   mounts {
     target = "/etc/vault/secrets"
-    source = "vault-agent-secrets"
+    source = docker_volume.vault_agent_secrets[0].name
     type   = "volume"
   }
 
@@ -43,7 +43,7 @@ resource "docker_container" "vault_agent" {
     name = docker_network.pg_ha_network.name
   }
 
-  depends_on = [null_resource.vault_init]
+  depends_on = [null_resource.vault_init, null_resource.vault_agent_secrets_perms]
 
   # Use an explicit entrypoint to run vault agent with config
   command = ["agent", "-config=/etc/vault/agent/agent.hcl"]
@@ -55,9 +55,27 @@ resource "docker_container" "vault_agent" {
   }
 }
 
-# Volume for sharing secrets with application containers
+# Volume for sharing secrets with application containers (only created when vault_agent_enabled)
 resource "docker_volume" "vault_agent_secrets" {
-  name = "vault-agent-secrets"
+  count = var.vault_agent_enabled ? 1 : 0
+  name  = "vault-agent-secrets"
+}
+
+# Set ownership of vault-agent-secrets volume to vault user (uid=100, gid=1000)
+# so the vault-agent process (which drops to the vault user at runtime) can write
+# rendered secret files into the volume.
+resource "null_resource" "vault_agent_secrets_perms" {
+  count = var.vault_agent_enabled ? 1 : 0
+
+  triggers = {
+    volume = docker_volume.vault_agent_secrets[0].name
+  }
+
+  provisioner "local-exec" {
+    command = "docker run --rm -v vault-agent-secrets:/data alpine sh -c 'chown 100:1000 /data && chmod 750 /data'"
+  }
+
+  depends_on = [docker_volume.vault_agent_secrets]
 }
 
 # Note: To use this sidecar in production, run one agent per host or per pod (K8s recommended).
