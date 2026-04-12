@@ -112,7 +112,17 @@ graph TD
 
     LB[Liquibase migrations\none-shot container] -->|session pool\npostgres_liquibase| PGB1
 
-    VAULT[Vault (HashiCorp Vault)\n:8200]
+    subgraph SECRETS["Secrets — optional (vault_enabled)"]
+        VAULT[Vault\n:8200 Raft]
+        AGENT[vault-agent\nsidecar]
+        SVOL[(vault-agent-secrets\nshared volume)]
+    end
+
+    AGENT -->|AppRole login| VAULT
+    VAULT -->|KV secrets| AGENT
+    AGENT -->|render postgres.env| SVOL
+    SVOL -. "read-only mount" .-> PG1
+    SVOL -. "read-only mount" .-> PGB1 & PGB2
 
     style PG1 fill:#2e7d32,color:#fff
     style PG2 fill:#1565c0,color:#fff
@@ -121,6 +131,8 @@ graph TD
     style PGB2 fill:#6a1b9a,color:#fff
     style ETCD fill:#e65100,color:#fff
     style LB fill:#37474f,color:#fff
+    style VAULT fill:#c62828,color:#fff
+    style AGENT fill:#f57c00,color:#fff
 ```
 
 ## 🔑 Key Features

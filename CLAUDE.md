@@ -69,16 +69,40 @@ bash verify-liquibase.sh
 
 ### Container Stack
 
-```text
-Applications
-    └── PgBouncer (:6432, :6433)  — transaction-mode pooling
-            └── pg-node-1 (:5432) primary   ─┐
-            └── pg-node-2 (:5433) replica    ├─ Patroni-managed streaming replication
-            └── pg-node-3 (:5434) replica   ─┘
-etcd (:2379)          — distributed consensus for leader election
-Liquibase (one-shot)  — schema migrations, runs after primary elected
-Vault (:8200)         — HashiCorp Vault, Raft backend (no external DB or Redis)
-vault-agent           — renders secrets to shared volume (vault_agent_enabled)
+```mermaid
+graph LR
+    APP["Apps / Clients"]
+
+    subgraph POOL["Connection Pooling"]
+        PGB1["PgBouncer-1\n:6432"]
+        PGB2["PgBouncer-2\n:6433"]
+    end
+
+    subgraph PGHA["Patroni HA Cluster — streaming replication + auto-failover"]
+        PG1["pg-node-1 PRIMARY :5432"]
+        PG2["pg-node-2 replica  :5433"]
+        PG3["pg-node-3 replica  :5434"]
+    end
+
+    ETCD["etcd :2379\nleader election"]
+    LB["Liquibase\none-shot migrations"]
+
+    subgraph SECRETS["Secrets — optional (vault_enabled)"]
+        VAULT["Vault :8200\nRaft backend"]
+        AGENT["vault-agent\nsidecar"]
+        SVOL[("vault-agent-secrets\nshared volume")]
+    end
+
+    APP --> PGB1 & PGB2
+    PGB1 & PGB2 -->|transaction pooling| PGHA
+    PG1 -->|WAL| PG2 & PG3
+    PGHA <-->|leader election| ETCD
+    LB -->|postgres_liquibase\nsession pool| PGB1
+    AGENT -->|AppRole login| VAULT
+    VAULT -->|KV secrets| AGENT
+    AGENT -->|render postgres.env| SVOL
+    SVOL -. "read-only mount" .-> PGHA
+    SVOL -. "read-only mount" .-> PGB1 & PGB2
 ```
 
 All containers share `pg-ha-network` (Docker bridge).
