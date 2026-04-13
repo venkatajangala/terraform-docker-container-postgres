@@ -238,7 +238,80 @@ graph LR
 - **Pro**: Maximum connection reuse
 - **Con**: Very limited compatibility — breaks many applications
 
-### 5. Network Topology
+### 5. Vault Secrets Management
+
+#### Vault Architecture
+
+Vault runs in **Raft server mode** (embedded single-node, no external storage dependency). vault-agent is a separate sidecar container that authenticates with Vault using AppRole and renders secrets to a shared Docker volume.
+
+```mermaid
+graph TD
+    subgraph BOOTSTRAP["Bootstrap (terraform apply — once)"]
+        BS["vault-bootstrap.sh<br/>1. vault operator init<br/>2. vault operator unseal<br/>3. Enable AppRole + KV v2<br/>4. Write pg/postgres + pg/replication secrets"]
+    end
+
+    subgraph RUNTIME["Runtime (every container start)"]
+        AGENT["vault-agent<br/>authenticates via AppRole"]
+        VAULT["Vault Server :8200<br/>Raft backend /vault/data"]
+        SVOL[("vault-agent-secrets\nshared Docker volume")]
+        PG["pg-node-1/2/3<br/>reads /etc/vault/secrets/postgres.env"]
+        PGB["pgbouncer-1/2<br/>reads /etc/vault/secrets/postgres.env"]
+    end
+
+    BS --> VAULT
+    AGENT -->|"role_id + secret_id"| VAULT
+    VAULT -->|"client_token"| AGENT
+    VAULT -->|"KV v2 secret data"| AGENT
+    AGENT -->|"render postgres.env"| SVOL
+    SVOL -. "read-only mount" .-> PG
+    SVOL -. "read-only mount" .-> PGB
+```
+
+#### AppRole Authentication Flow
+
+```mermaid
+sequenceDiagram
+    participant BS as vault-bootstrap.sh
+    participant V as Vault Server
+    participant AG as vault-agent
+    participant VOL as shared volume
+
+    Note over BS,V: First deploy only
+    BS->>V: vault operator init + unseal
+    BS->>V: Enable auth/approle + secrets/kv-v2
+    BS->>V: vault write auth/approle/role/pg-role ...
+    BS->>V: vault kv put secret/pg/postgres postgres_password=...
+    V-->>BS: role_id + secret_id written to .vault-bootstrap/
+
+    Note over AG,VOL: Every container start
+    AG->>V: POST /v1/auth/approle/login {role_id, secret_id}
+    V-->>AG: client_token (TTL-bound)
+    AG->>V: GET /v1/secret/data/pg/postgres
+    V-->>AG: {postgres_user, postgres_password, ...}
+    AG->>VOL: render /etc/vault/secrets/postgres.env
+    Note over VOL: File available to pg-node + pgbouncer containers
+```
+
+#### Secrets Stored in Vault KV v2
+
+| Path | Fields | Consumers |
+| ---- | ------ | --------- |
+| `secret/data/pg/postgres` | `postgres_user`, `postgres_password` | pg-node, pgbouncer, liquibase |
+| `secret/data/pg/replication` | `replication_password` | pg-node (replication slot auth) |
+
+#### Key Files
+
+| File | Purpose |
+| ---- | ------- |
+| `vault/config/vault.hcl` | Raft backend, `cluster_addr = http://vault:8201`, `api_addr = http://vault:8200` |
+| `vault-bootstrap.sh` | One-shot init script; idempotent (checks initialized state before running) |
+| `vault-secrets.sh` | Shell library sourced by entrypoints; `fetch_secret_field()`, `create_secret_in_vault()` |
+| `main-vault.tf` | Vault container + volume; `null_resource.vault_data_perms` (chown -R 100:1000) |
+| `main-vault-agent.tf` | vault-agent container + `vault-agent-secrets` volume |
+| `main-vault-init.tf` | `null_resource.vault_init` — triggers `vault-bootstrap.sh` after volume perms are set |
+| `.vault-bootstrap/vault-init.json` | Root token + unseal keys (gitignored, chmod 600) |
+
+### 6. Network Topology
 
 #### Docker Network
 
@@ -252,6 +325,8 @@ graph TD
         PGB1["pgbouncer-1<br/>172.20.0.6"]
         PGB2["pgbouncer-2<br/>172.20.0.7"]
         DBHUB["dbhub<br/>172.20.0.8"]
+        VAULT["vault<br/>172.20.0.9"]
+        VAGENT["vault-agent<br/>172.20.0.10"]
     end
 
     HOST["Host Machine"]
@@ -264,7 +339,9 @@ graph TD
     HOST -->|":8009"| PG2
     HOST -->|":8010"| PG3
     HOST -->|":2379"| ETCD
+    HOST -->|":8200"| VAULT
     HOST -->|":9090"| DBHUB
+    VAGENT -->|"AppRole :8200"| VAULT
 ```
 
 #### Connectivity Flow
@@ -284,6 +361,7 @@ graph LR
     HOST -->|"localhost:6432"| PGB1
     HOST -->|"localhost:5432"| PG1D
     HOST -->|"localhost:8008"| PAT
+    HOST -->|"localhost:8200"| VLT["Vault API / UI"]
     HOST -->|"localhost:9090"| DBH
     PGB1 -->|"TCP 5432"| PG1 & PG2 & PG3
     PAT <-->|"TCP 2379"| ETCD
@@ -392,6 +470,8 @@ sequenceDiagram
 | Patroni | ~50 MB |
 | PgBouncer | ~200 MB + pool buffers |
 | etcd | ~100 MB |
+| Vault | ~200 MB + Raft storage |
+| vault-agent | ~50 MB |
 | DBHub | ~500 MB |
 
 ## Failure Modes & Recovery
@@ -405,6 +485,9 @@ sequenceDiagram
 | Single PgBouncer dies | Automatic health check | Route via other PgBouncer instance | ~1 sec |
 | All PgBouncers die | Clients fail | Direct PostgreSQL connection available | ~5 sec (app reconfiguration) |
 | Network partition (minority) | 30 sec | Minority partition shuts down | 30 sec |
+| Vault sealed (after restart) | Container startup | `vault operator unseal $(jq -r '.unseal_keys_b64[0]' .vault-bootstrap/vault-init.json)` | 0 sec (DB containers keep cached `postgres.env` until next restart) |
+| vault-agent crashes | Container health check | Docker restarts agent; re-authenticates and re-renders secrets | 0 sec (secret file already rendered) |
+| Vault data volume lost | Manual detection | Re-run `vault-bootstrap.sh` after recreating volume; rotate all secrets | Full re-bootstrap required |
 
 ## Security Boundaries
 
@@ -413,18 +496,24 @@ graph TD
     EXT["External Clients<br/>(SCRAM-SHA-256 required)"]
 
     subgraph HOST["Host Machine — Trusted Boundary"]
-        PORTS["Exposed Host Ports<br/>:6432 / :6433 → PgBouncer (DB access)<br/>:5432–:5434 → PostgreSQL direct<br/>:8008–:8010 → Patroni API<br/>:2379 → etcd API<br/>:9090 → DBHub Web UI"]
+        PORTS["Exposed Host Ports<br/>:6432 / :6433 → PgBouncer (DB access)<br/>:5432–:5434 → PostgreSQL direct<br/>:8008–:8010 → Patroni API<br/>:2379 → etcd API<br/>:8200 → Vault API (restrict in production)<br/>:9090 → DBHub Web UI"]
 
         subgraph DOCKER["Docker Bridge Network · 172.20.0.0/16 (Isolated)"]
             PG1["pg-node-1"] & PG2["pg-node-2"] & PG3["pg-node-3"]
             PGB1["pgbouncer-1"] & PGB2["pgbouncer-2"]
             ETCD["etcd"]
+            VAULT["vault (AppRole + KV v2)"]
+            VAGENT["vault-agent (renders secrets)"]
+            SVOL[("vault-agent-secrets\nread-only → pg-node + pgbouncer")]
             DBHUB["dbhub"]
         end
     end
 
     EXT -->|"SCRAM-SHA-256"| PORTS
     PORTS --> DOCKER
+    VAGENT -->|"AppRole login"| VAULT
+    VAULT -->|"KV secrets"| VAGENT
+    VAGENT --> SVOL
 ```
 
 ### Default Authentication
@@ -438,7 +527,9 @@ graph TD
 
 - Add TLS/SSL layer (e.g. stunnel, nginx TCP proxy)
 - Enable PostgreSQL audit logging (`pgaudit`)
-- Restrict port exposure with firewall rules
+- Restrict port exposure with firewall rules — especially Vault `:8200`
+- Enable `vault_enabled = true` for centralized secrets management
+- Rotate Vault AppRole `secret_id` on a regular schedule
 - Enable application-level authentication
 
 ## Performance Characteristics

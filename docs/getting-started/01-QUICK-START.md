@@ -47,6 +47,8 @@ sleep 150
 - 3 PostgreSQL nodes (Patroni-managed)
 - 2 PgBouncer poolers (for connection pooling)
 - etcd cluster (for distributed consensus)
+- Vault server (Raft backend, secrets management — `vault_enabled`)
+- vault-agent sidecar (renders secrets to containers — `vault_enabled`)
 - DBHub web UI (optional)
 
 ### Step 3: Verify (1 minute)
@@ -83,6 +85,20 @@ curl -s http://localhost:8008/leader | python3 -m json.tool
 
 # View cluster members
 curl -s http://localhost:8008/cluster | python3 -m json.tool | grep -E '"name"|"state"|"role"'
+
+# Check Vault health (if vault_enabled = true)
+curl -s http://localhost:8200/v1/sys/health | python3 -c "
+import sys, json; d = json.load(sys.stdin)
+print('Vault initialized:', d['initialized'])
+print('Vault sealed:     ', d['sealed'])
+print('Vault version:    ', d['version'])
+"
+
+# Verify vault-agent rendered secrets into containers
+for c in pg-node-1 pg-node-2 pg-node-3 pgbouncer-1 pgbouncer-2; do
+  echo -n "$c: "
+  docker exec "$c" sh -c 'test -f /etc/vault/secrets/postgres.env && echo OK || echo MISSING'
+done
 ```
 
 ## Common Next Steps
@@ -149,6 +165,9 @@ curl -s http://localhost:9090/api/v1/info
 | psql not found | Install PostgreSQL client: `apt-get install postgresql-client` |
 | Port in use | Change ports in `ha-test.tfvars` or stop other services |
 | Auth failure | Run `terraform output generated_passwords` for the current password |
+| Vault sealed | Unseal: `docker exec vault vault operator unseal $(jq -r '.unseal_keys_b64[0]' .vault-bootstrap/vault-init.json)` |
+| Vault permission denied | Fix volume: `docker run --rm -v vault-data:/vault/data alpine sh -c 'chown -R 100:1000 /vault/data'` |
+| Vault bootstrap files missing | Re-run bootstrap: `bash vault-bootstrap.sh` (only on fresh deploy) |
 
 ## What You Now Have
 
@@ -169,6 +188,13 @@ curl -s http://localhost:9090/api/v1/info
 - etcd cluster
 - Leader election
 - Configuration management
+
+✅ **Vault Secrets Management**
+
+- HashiCorp Vault 1.17.3 (Raft backend)
+- AppRole authentication
+- KV v2 secrets — PostgreSQL passwords auto-seeded
+- vault-agent sidecar injects `postgres.env` into all containers
 
 ✅ **Web Management UI**
 
@@ -191,6 +217,8 @@ docker ps -a
 
 # View logs
 docker logs pg-node-1 -f
+docker logs vault -f
+docker logs vault-agent -f
 
 # Check connectivity
 export PGPASSWORD='<password from generated_passwords>'
@@ -199,6 +227,15 @@ unset PGPASSWORD
 
 # Admin console
 PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 6432 -U pgadmin -d pgbouncer
+
+# Check Vault status
+curl -s http://localhost:8200/v1/sys/health | python3 -m json.tool
+
+# Check vault-agent rendered secrets
+docker exec pg-node-1 cat /etc/vault/secrets/postgres.env
+
+# Retrieve all generated passwords
+terraform output -json generated_passwords | python3 -m json.tool
 ```
 
 ---

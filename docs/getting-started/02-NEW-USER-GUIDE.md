@@ -15,10 +15,21 @@ graph TD
     PG3["PG-3 REPLICA<br/>:5434"]
     ETCD["etcd cluster<br/>:2379 — Distributed consensus"]
 
+    subgraph SECRETS["Secrets (optional — vault_enabled)"]
+        VAULT["Vault Server<br/>:8200 — KV v2 secrets"]
+        AGENT["vault-agent sidecar<br/>renders postgres.env"]
+        SVOL[("vault-agent-secrets\nshared volume")]
+    end
+
     APP --> PGB
     PGB --> PG1 & PG2 & PG3
     PG1 -->|"WAL streaming"| PG2 & PG3
     PG1 & PG2 & PG3 <-->|"Leader election"| ETCD
+    AGENT -->|"AppRole login"| VAULT
+    VAULT -->|"KV secrets"| AGENT
+    AGENT -->|"render"| SVOL
+    SVOL -. "postgres.env (read-only)" .-> PG1 & PG2 & PG3
+    SVOL -. "postgres.env (read-only)" .-> PGB
 ```
 
 ## Inside This Cluster
@@ -56,6 +67,22 @@ graph TD
 - **Role**: Web-based database management UI
 - **Access**: http://localhost:9090
 - **Features**: Query execution, schema browser, migrations
+
+### 🔐 Vault (Secrets Management)
+
+- **Version**: HashiCorp Vault 1.17.3
+- **Role**: Centralized secrets manager for all PostgreSQL credentials
+- **Backend**: Raft (embedded single-node, production mode)
+- **Auth method**: AppRole (role_id + secret_id — no long-lived tokens)
+- **Secrets engine**: KV v2 — versioned secrets at `secret/data/pg/postgres` and `secret/data/pg/replication`
+- **Port**: 8200
+- **Optional**: Toggle with `vault_enabled = true` in `ha-test.tfvars`
+
+### 🤖 vault-agent (Secrets Sidecar)
+
+- **Role**: Authenticates with Vault via AppRole, renders secrets to a shared Docker volume
+- **Output file**: `/etc/vault/secrets/postgres.env` — mounted read-only into all pg-node and pgbouncer containers
+- **Benefit**: Containers never hold credentials in their images or environment variables; secrets rotate without container rebuilds
 
 ## Key Capabilities
 
@@ -173,7 +200,48 @@ pgbouncer> SHOW STATS;      # Detailed statistics
 pgbouncer> SHOW CLIENTS;    # Active clients
 ```
 
-### Scenario 4: I Want to Add More Data
+### Scenario 4: I Want to Check Vault Secrets
+
+```bash
+# 1. Check Vault health
+curl -s http://localhost:8200/v1/sys/health | python3 -c "
+import sys, json; d = json.load(sys.stdin)
+print('initialized:', d['initialized'])
+print('sealed:     ', d['sealed'])
+print('version:    ', d['version'])
+"
+
+# 2. Verify bootstrap artifacts exist
+ls -la .vault-bootstrap/vault-init.json .vault-bootstrap/role_id .vault-bootstrap/secret_id
+
+# 3. Read a KV secret (requires root token)
+VAULT_TOKEN=$(jq -r '.root_token' .vault-bootstrap/vault-init.json)
+curl -sf -H "X-Vault-Token: $VAULT_TOKEN" \
+  http://localhost:8200/v1/secret/data/pg/postgres | python3 -c "
+import sys, json
+d = json.load(sys.stdin)['data']['data']
+print('postgres_user:    ', d['postgres_user'])
+print('password set:     ', len(d['postgres_password']) > 0)
+"
+
+# 4. Test AppRole authentication (machine-to-machine flow)
+ROLE_ID=$(cat .vault-bootstrap/role_id)
+SECRET_ID=$(cat .vault-bootstrap/secret_id)
+curl -sf -X POST \
+  -d "{\"role_id\":\"$ROLE_ID\",\"secret_id\":\"$SECRET_ID\"}" \
+  http://localhost:8200/v1/auth/approle/login | python3 -c "
+import sys, json; d = json.load(sys.stdin)
+print('token acquired:', len(d['auth']['client_token']) > 0)
+"
+
+# 5. Verify vault-agent rendered secrets in all containers
+for c in pg-node-1 pg-node-2 pg-node-3 pgbouncer-1 pgbouncer-2; do
+  echo -n "$c: "
+  docker exec "$c" sh -c 'test -f /etc/vault/secrets/postgres.env && echo OK || echo MISSING'
+done
+```
+
+### Scenario 5: I Want to Add More Data
 
 ```bash
 # Create table
@@ -208,6 +276,7 @@ PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 5433 -U pg
 | 8009 | Patroni-2 | Cluster API | Monitoring |
 | 8010 | Patroni-3 | Cluster API | Monitoring |
 | 2379 | etcd | Configuration | Internal |
+| 8200 | Vault | Secrets API & UI | Optional (`vault_enabled`) |
 | 9090 | DBHub | Web UI | Browser |
 
 ## File Organization
@@ -217,9 +286,19 @@ Your project:
 ├── README.md                    ← Main overview
 ├── docs/                        ← All documentation
 ├── main-ha.tf                   ← Core infrastructure (Terraform)
+├── main-vault.tf                ← Vault container + volume (Terraform)
+├── main-vault-agent.tf          ← vault-agent sidecar (Terraform)
+├── main-vault-init.tf           ← Vault bootstrap trigger (Terraform)
 ├── variables-ha.tf              ← All configuration knobs
 ├── outputs-ha.tf                ← Connection strings & endpoints
 ├── ha-test.tfvars               ← Your deployment values
+├── vault/config/vault.hcl       ← Vault server config (Raft backend)
+├── vault-bootstrap.sh           ← Init, unseal, AppRole + KV seed
+├── vault-secrets.sh             ← Shared Vault HTTP library (sourced by entrypoints)
+├── .vault-bootstrap/            ← Bootstrap artifacts (gitignored)
+│   ├── vault-init.json         ← Root token + unseal keys
+│   ├── role_id                 ← AppRole role ID
+│   └── secret_id               ← AppRole secret ID
 ├── pgbouncer/                   ← PgBouncer configs
 │   ├── pgbouncer.ini           ← Main config
 │   └── userlist.txt            ← Credentials (generated at apply)
@@ -235,6 +314,8 @@ Your project:
 - **PostgreSQL User**: `pgadmin`
 - **Password**: Auto-generated by Terraform — retrieve with `terraform output generated_passwords`
 - **Auth method**: SCRAM-SHA-256 (no plain-text passwords in transit)
+- **Secrets**: When `vault_enabled = true`, all passwords stored in Vault KV v2; injected at container startup via vault-agent
+- **AppRole**: Vault uses role_id + secret_id (no long-lived root tokens passed to containers)
 - **Network**: Docker bridge (isolated, not exposed externally by default)
 
 ### Before Production ⚠️
@@ -244,6 +325,7 @@ Your project:
 - [ ] Restrict network access to authorized users only
 - [ ] Enable PostgreSQL audit logging (`pgaudit`)
 - [ ] Configure automated backups
+- [ ] Enable `vault_enabled = true` and rotate AppRole `secret_id` regularly
 - [ ] Review the Security Boundaries section in [Architecture Overview](../architecture/ARCHITECTURE.md)
 
 ## Development vs Production
@@ -262,7 +344,9 @@ Your project:
 - 🔒 Enable PostgreSQL audit logging
 - 🔒 Set up automated backups
 - 🔒 Configure monitoring and alerts
-- 🔒 Enable Vault for secrets rotation (see [Vault Quick Start](VAULT-QuickStart.md))
+- 🔒 Enable Vault (`vault_enabled = true`) — see [Vault Quick Start](VAULT-QuickStart.md)
+- 🔒 Rotate Vault AppRole `secret_id` on a schedule
+- 🔒 Restrict Vault port 8200 to internal network only
 
 ## Your Next Steps (Choose One)
 
@@ -302,12 +386,26 @@ PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 6432 -U pg
 docker logs pg-node-1 -f
 docker logs pgbouncer-1 -f
 docker logs etcd -f
+docker logs vault -f
+docker logs vault-agent -f
 
 # Test connections
 export PGPASSWORD='<password from generated_passwords>'
 psql -h localhost -p 6432 -U pgadmin -d postgres -c "SELECT 1;"
 psql -h localhost -p 5432 -U pgadmin -d postgres -c "SELECT 1;"
 unset PGPASSWORD
+
+# Vault — check health
+curl -s http://localhost:8200/v1/sys/health | python3 -m json.tool
+
+# Vault — verify secrets rendered into containers
+for c in pg-node-1 pg-node-2 pg-node-3 pgbouncer-1 pgbouncer-2; do
+  echo -n "$c: "; docker exec "$c" sh -c 'test -f /etc/vault/secrets/postgres.env && echo OK || echo MISSING'
+done
+
+# Vault — read a KV secret
+VAULT_TOKEN=$(jq -r '.root_token' .vault-bootstrap/vault-init.json)
+curl -sf -H "X-Vault-Token: $VAULT_TOKEN" http://localhost:8200/v1/secret/data/pg/postgres | python3 -m json.tool
 ```
 
 ## Terminology
@@ -323,6 +421,10 @@ unset PGPASSWORD
 | **PgBouncer** | Connection pooling proxy (your apps connect here) |
 | **Pool** | Set of reusable connections to avoid creating new ones |
 | **Transaction Mode** | PgBouncer allocates a connection per transaction (most compatible) |
+| **Vault** | HashiCorp Vault — centralized secrets manager; stores DB passwords in KV v2 |
+| **vault-agent** | Sidecar container that authenticates with Vault and injects secrets into pg-node/pgbouncer containers |
+| **AppRole** | Vault auth method using role_id + secret_id pair (machine-to-machine authentication) |
+| **KV v2** | Vault Key-Value secrets engine v2 — versioned secret store |
 
 ## Frequently Asked Questions
 
@@ -340,6 +442,28 @@ A: This is PostgreSQL only. You can create multiple databases on the cluster tho
 
 **Q: Is this secure?**
 A: Suitable for development as-is. For production, harden using the checklist in the Security section above.
+
+**Q: Where are the database passwords stored?**
+A: When `vault_enabled = true`, passwords are stored in Vault KV v2 (`secret/data/pg/postgres`, `secret/data/pg/replication`). vault-agent renders them to `/etc/vault/secrets/postgres.env` at container startup. Without Vault, passwords come from Terraform-generated environment variables.
+
+**Q: How do I retrieve a secret from Vault?**
+A:
+
+```bash
+VAULT_TOKEN=$(jq -r '.root_token' .vault-bootstrap/vault-init.json)
+curl -sf -H "X-Vault-Token: $VAULT_TOKEN" \
+  http://localhost:8200/v1/secret/data/pg/postgres | python3 -m json.tool
+```
+
+**Q: What if Vault restarts?**
+A: Vault auto-unseals on the first deploy. After a restart you need to unseal it manually:
+
+```bash
+docker exec vault vault operator unseal \
+  $(jq -r '.unseal_keys_b64[0]' .vault-bootstrap/vault-init.json)
+```
+
+Containers already running keep their rendered `postgres.env` until the next restart.
 
 **Q: What if I need to scale?**
 A: Edit `ha-test.tfvars` (pool sizes, replica count) and review `variables-ha.tf` for all tuning options.
