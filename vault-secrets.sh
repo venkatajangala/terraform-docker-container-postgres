@@ -6,16 +6,16 @@ set -e
 
 VAULT_ADDR="${VAULT_ADDR:-http://vault:8200}"
 VAULT_TOKEN="${VAULT_TOKEN:-}"
-# Use :-5 so that callers (liquibase-entrypoint.sh) can set their own MAX_RETRIES
-# via environment variable without being overridden when this file is sourced.
-MAX_RETRIES="${MAX_RETRIES:-5}"
+# Use a vault-private variable so callers that set MAX_RETRIES (e.g. liquibase-entrypoint.sh
+# sets MAX_RETRIES=30 for PgBouncer polling) do not inflate Vault HTTP retry counts.
+VAULT_MAX_RETRIES="${VAULT_MAX_RETRIES:-5}"
 RETRY_DELAY="${RETRY_DELAY:-2}"
 
 # Internal helper: perform Vault HTTP GET with retries
 _vault_get() {
   local path="$1"
   local attempt=1
-  while [ $attempt -le $MAX_RETRIES ]; do
+  while [ $attempt -le $VAULT_MAX_RETRIES ]; do
     if [ -n "${VAULT_TOKEN}" ]; then
       response=$(curl -s -w "\n%{http_code}" -H "X-Vault-Token: ${VAULT_TOKEN}" "${VAULT_ADDR}/v1/${path}" 2>/dev/null) || true
     else
@@ -29,7 +29,7 @@ _vault_get() {
       echo "$body"
       return 0
     else
-      echo "Attempt $attempt/$MAX_RETRIES: Vault HTTP $http_code, retrying in ${RETRY_DELAY}s..." >&2
+      echo "Attempt $attempt/$VAULT_MAX_RETRIES: Vault HTTP $http_code, retrying in ${RETRY_DELAY}s..." >&2
       attempt=$((attempt+1))
       sleep $RETRY_DELAY
     fi

@@ -89,31 +89,31 @@ locals {
 resource "random_password" "db_admin_password" {
   length           = var.password_length
   special          = true
-  override_special = "!_-+"
+  override_special = "-_"
 }
 
 resource "random_password" "db_replication_password" {
   length           = var.password_length
   special          = true
-  override_special = "!_-+"
+  override_special = "-_"
 }
 
 resource "random_password" "pgbouncer_admin_password" {
   length           = var.password_length
   special          = true
-  override_special = "!_-+"
+  override_special = "-_"
 }
 
 resource "random_password" "vault_api_key" {
   length           = 32
   special          = true
-  override_special = "!_-+"
+  override_special = "-_"
 }
 
 resource "random_password" "vault_db_password" {
   length           = var.password_length
   special          = true
-  override_special = "!_-+"
+  override_special = "-_"
 }
 
 # ============================================================================

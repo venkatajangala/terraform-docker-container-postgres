@@ -228,6 +228,28 @@ else
 fi
 echo ""
 
+echo "TEST 11: PostgreSQL Extensions"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Verify all required extensions are installed (created by Liquibase 02-add-extensions.yml)
+for ext in vector pg_stat_statements pgcrypto uuid-ossp; do
+  if docker exec pg-node-1 psql -U postgres -d postgres -tc \
+      "SELECT 1 FROM pg_extension WHERE extname = '${ext}';" 2>/dev/null | grep -q 1; then
+    test_pass "Extension installed: ${ext}"
+  else
+    test_fail "Extension MISSING: ${ext} (run: docker start liquibase-migrations)"
+  fi
+done
+
+# Verify pgvector can store and query embeddings
+if docker exec pg-node-1 psql -U postgres -d postgres -c \
+    "SELECT '[1,2,3]'::vector(3) <-> '[4,5,6]'::vector(3) AS dist;" > /dev/null 2>&1; then
+  test_pass "pgvector cosine distance operator works"
+else
+  test_fail "pgvector operator test failed"
+fi
+echo ""
+
 echo "╔════════════════════════════════════════════════════════════════╗"
 echo "║                       TEST RESULTS                             ║"
 echo "╚════════════════════════════════════════════════════════════════╝"

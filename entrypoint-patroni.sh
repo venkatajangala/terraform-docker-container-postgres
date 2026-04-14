@@ -46,19 +46,25 @@ if command -v verify_vault_connection >/dev/null 2>&1; then
   if verify_vault_connection 2>/dev/null; then
     echo "Fetching secrets from Vault..."
 
-    if POSTGRES_PASSWORD=$(fetch_secret_field "pg/postgres" "postgres_password" 2>/dev/null); then
-      echo "✓ Fetched db-admin-password from Vault"
+    _vault_pw=$(fetch_secret_field "pg/postgres" "postgres_password" 2>/dev/null) || true
+    if [ -n "$_vault_pw" ]; then
+      POSTGRES_PASSWORD="$_vault_pw"
       export POSTGRES_PASSWORD
+      echo "✓ Fetched db-admin-password from Vault"
     else
       echo "⚠ Using environment db-admin-password"
     fi
+    unset _vault_pw
 
-    if REPLICATION_PASSWORD=$(fetch_secret_field "pg/replication" "replication_password" 2>/dev/null); then
-      echo "✓ Fetched db-replication-password from Vault"
+    _vault_rp=$(fetch_secret_field "pg/replication" "replication_password" 2>/dev/null) || true
+    if [ -n "$_vault_rp" ]; then
+      REPLICATION_PASSWORD="$_vault_rp"
       export REPLICATION_PASSWORD
+      echo "✓ Fetched db-replication-password from Vault"
     else
       echo "⚠ Using environment db-replication-password"
     fi
+    unset _vault_rp
   else
     echo "⚠ Vault not reachable, using environment variables"
   fi

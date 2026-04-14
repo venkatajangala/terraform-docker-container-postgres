@@ -32,4 +32,7 @@ vault_port             = 8200
 vault_raft_nodes       = 1
 vault_agent_enabled    = true
 
+// Liquibase tuning: give Patroni leader election extra time when Vault startup adds overhead
+liquibase_max_retries  = 60  // 60 x 5s = 5 min (default 30 x 5s = 2.5 min was too short)
+
 
