@@ -1,6 +1,6 @@
 # Comprehensive Testing Guide
 
-Complete testing procedures for PostgreSQL HA Cluster with Liquibase, PgBouncer, and Vault.
+Complete testing procedures for PostgreSQL HA Cluster with Liquibase, PgBouncer, Vault, and Datadog.
 
 ---
 
@@ -13,9 +13,10 @@ Complete testing procedures for PostgreSQL HA Cluster with Liquibase, PgBouncer,
 5. [HA Cluster Tests](#ha-cluster-tests)
 6. [PgBouncer Tests](#pgbouncer-tests)
 7. [Vault Tests](#vault-tests)
-8. [Performance Tests](#performance-tests)
-9. [Failover & Recovery Tests](#failover--recovery-tests)
-10. [Test Reporting](#test-reporting)
+8. [Datadog Tests](#datadog-tests)
+9. [Performance Tests](#performance-tests)
+10. [Failover & Recovery Tests](#failover--recovery-tests)
+11. [Test Reporting](#test-reporting)
 
 ---
 
@@ -511,9 +512,152 @@ curl -s http://localhost:8008/cluster | python3 -m json.tool | grep -i state
 
 ---
 
+## Datadog Tests
+
+> **Prerequisite**: `datadog_enabled = true` in `ha-test.tfvars` and `TF_VAR_datadog_api_key` set.
+
+### 8.1 Agent Container Status
+
+```bash
+# Verify container is running
+docker ps --format "{{.Names}}\t{{.Status}}" | grep datadog-agent
+
+# Expected: datadog-agent   Up X minutes
+```
+
+**Expected Results**:
+- ✓ `datadog-agent` container present and in `Up` state
+
+### 8.2 Full Health Check Script
+
+```bash
+# Run the built-in health check script
+bash datadog-health-check.sh
+
+# Compact status mode
+bash datadog-health-check.sh --status
+
+# Integration check results only
+bash datadog-health-check.sh --checks
+```
+
+**Expected Results**:
+- ✓ All container reachability checks show TCP reachable
+- ✓ Patroni `/liveness` endpoints → HTTP 200 on all 3 nodes
+- ✓ etcd `/health` → HTTP 200
+- ✓ Vault `/v1/sys/health` → HTTP 200 (if `vault_enabled = true`)
+- ✓ No errors in last 100 agent log lines
+
+### 8.3 Agent API Key Validation
+
+```bash
+# Check agent status for API key confirmation
+docker exec datadog-agent agent status 2>/dev/null | grep -A 2 "API Keys"
+```
+
+**Expected Results**:
+- ✓ Status shows `API key ending with <last-4-chars>` — confirms key accepted
+
+### 8.4 PostgreSQL Integration Check
+
+```bash
+# Run the postgres check manually and inspect output
+docker exec datadog-agent agent check postgres 2>&1 | tail -40
+```
+
+**Expected Results**:
+- ✓ Series section present with `postgresql.*` metrics
+- ✓ Three instances reported (pg-node-1, pg-node-2, pg-node-3)
+- ✓ No `CRITICAL` or authentication errors
+- Example metrics: `postgresql.connections`, `postgresql.percent_usage_connections`,
+  `postgresql.replication_delay`, `postgresql.database_size`
+
+### 8.5 PgBouncer Integration Check
+
+```bash
+docker exec datadog-agent agent check pgbouncer 2>&1 | tail -30
+```
+
+**Expected Results**:
+- ✓ Series section present with `pgbouncer.*` metrics
+- ✓ Two instances reported (pgbouncer-1, pgbouncer-2)
+- ✓ No authentication errors
+- Example metrics: `pgbouncer.pools.sv_active`, `pgbouncer.pools.cl_waiting`,
+  `pgbouncer.stats.total_query_count`
+
+### 8.6 HTTP Check (Patroni + etcd + Vault)
+
+```bash
+docker exec datadog-agent agent check http_check 2>&1 | tail -40
+```
+
+**Expected Results**:
+- ✓ `patroni-node-1-liveness` — `UP`
+- ✓ `patroni-node-2-liveness` — `UP`
+- ✓ `patroni-node-3-liveness` — `UP`
+- ✓ `patroni-cluster-status` — `UP`
+- ✓ `etcd-health` — `UP`
+- ✓ `vault-health` — `UP` (when vault_enabled = true)
+
+### 8.7 Docker Container Metrics
+
+```bash
+# Verify the agent is collecting Docker container metrics
+docker exec datadog-agent agent check docker 2>&1 | grep -E "docker\.(cpu|mem|io)" | head -10
+```
+
+**Expected Results**:
+- ✓ `docker.cpu.user`, `docker.mem.rss`, `docker.io.read_bytes` present
+- ✓ Metrics tagged per container name
+
+### 8.8 Log Collection
+
+```bash
+# Confirm log collection is active
+docker exec datadog-agent agent status 2>/dev/null | grep -A 5 "Logs Agent"
+```
+
+**Expected Results**:
+- ✓ `Logs Agent` section shows `Status: Running`
+- ✓ Container sources listed for pg-node-*, pgbouncer-*, etc.
+
+### 8.9 Datadog Rendered Config Sanity Check
+
+```bash
+# Verify rendered configs exist (they are gitignored — contain passwords)
+ls -la datadog/rendered/
+
+# Spot-check postgres config (CAUTION: contains plaintext password)
+grep "host:" datadog/rendered/postgres.yaml
+
+# Spot-check pgbouncer config
+grep "host:" datadog/rendered/pgbouncer.yaml
+
+# Spot-check http_check config
+grep "url:" datadog/rendered/http_check.yaml
+```
+
+**Expected Results**:
+- ✓ `postgres.yaml`, `pgbouncer.yaml`, `http_check.yaml` present in `datadog/rendered/`
+- ✓ postgres config lists `pg-node-1`, `pg-node-2`, `pg-node-3`
+- ✓ pgbouncer config lists `pgbouncer-1`, `pgbouncer-2`
+- ✓ http_check config has Patroni liveness URLs + etcd URL
+
+### 8.10 Container Status After Deployment (with Datadog)
+
+```bash
+docker ps -a | grep -E 'pg-node|pgbouncer|etcd|vault|liquibase|dbhub|datadog'
+```
+
+**Expected Results**:
+- ✓ All previous containers still running (no regressions)
+- ✓ `datadog-agent` in `Up` state
+
+---
+
 ## Performance Tests
 
-### 8.1 Query Performance
+### 9.1 Query Performance
 
 ```bash
 psql -h localhost -p 5432 -U pgadmin -d postgres << 'EOF'
@@ -550,7 +694,7 @@ EOF
 - ✓ Index scans used
 - ✓ No sequential scans on large tables
 
-### 8.2 Connection Pool Performance
+### 9.2 Connection Pool Performance
 
 ```bash
 # Test multiple concurrent connections
@@ -569,7 +713,7 @@ psql -h localhost -p 6432 -U pgadmin -d pgbouncer -c "SHOW STATS;"
 - ✓ PgBouncer handles pooling
 - ✓ No connection errors
 
-### 8.3 Replication Throughput
+### 9.3 Replication Throughput
 
 ```bash
 # Run write workload on primary
@@ -613,7 +757,7 @@ EOF
 
 **⚠️ WARNING**: These tests modify cluster state. Only run in staging/test environments.
 
-### 9.1 Primary Failure Simulation
+### 10.1 Primary Failure Simulation
 
 ```bash
 # 1. Note current primary
@@ -657,7 +801,7 @@ curl -s http://localhost:8008/cluster | python3 -m json.tool | grep -A 20 member
 - ✓ Original node rejoins as replica
 - ✓ Cluster shows all 3 members healthy
 
-### 9.2 Data Persistence Test
+### 10.2 Data Persistence Test
 
 ```bash
 psql -h localhost -p 5432 -U pgadmin -d postgres << 'EOF'
@@ -681,7 +825,7 @@ EOF
 - ✓ record_before = record_after
 - ✓ No data loss
 
-### 9.3 Audit Trail Persistence
+### 10.3 Audit Trail Persistence
 
 ```bash
 psql -h localhost -p 5432 -U pgadmin -d postgres << 'EOF'
@@ -709,7 +853,7 @@ EOF
 
 ## Test Reporting
 
-### 10.1 Generate Test Report
+### 11.1 Generate Test Report
 
 ```bash
 # Run all tests and capture output
@@ -745,7 +889,7 @@ cat /tmp/test-liquibase-report.txt
 cat /tmp/verify-liquibase-report.txt
 ```
 
-### 10.2 Performance Baseline
+### 11.2 Performance Baseline
 
 ```bash
 psql -h localhost -p 5432 -U pgadmin -d postgres << 'EOF'

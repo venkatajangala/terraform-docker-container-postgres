@@ -10,6 +10,7 @@ Production-ready **PostgreSQL 18 High Availability cluster** managed entirely wi
 - Liquibase schema migrations (HA-aware, waits for primary before running)
 - Vault secrets management (optional, toggle via `vault_enabled`)
 - pgvector extension for AI/ML embeddings (1536-dim IVFFLAT)
+- Datadog Agent for metrics, logs, and integration checks (optional, toggle via `datadog_enabled`)
 
 ## Key Commands
 
@@ -57,6 +58,24 @@ bash test-liquibase.sh
 bash verify-liquibase.sh
 ```
 
+### Datadog Monitoring
+
+```bash
+# Run health check (requires datadog_enabled = true and DD_API_KEY set)
+bash datadog-health-check.sh
+
+# Full agent status
+docker exec datadog-agent agent status
+
+# Re-run individual checks
+docker exec datadog-agent agent check postgres
+docker exec datadog-agent agent check pgbouncer
+docker exec datadog-agent agent check http_check
+
+# Tail agent logs
+docker logs datadog-agent -f
+```
+
 ## Architecture
 
 ### Terraform Files
@@ -64,6 +83,7 @@ bash verify-liquibase.sh
 - **main-vault-init.tf** — Vault container, volume, `null_resource.vault_init` bootstrap trigger
 - **main-vault-agent.tf** — Vault Agent sidecar container, `vault-agent-secrets` volume, permission fix
 - **main-liquibase.tf** — Liquibase one-shot container (mounts changelog, waits for primary)
+- **main-datadog.tf** — Datadog Agent container, `datadog-data` volume, rendered integration configs
 - **variables-ha.tf** — All configuration knobs (passwords, pool sizes, memory limits, feature flags)
 - **outputs-ha.tf** — Connection strings, endpoints, generated credentials
 
@@ -93,6 +113,10 @@ graph LR
         SVOL[("vault-agent-secrets\nshared volume")]
     end
 
+    subgraph OBS["Observability — optional (datadog_enabled)"]
+        DD["Datadog Agent\n:8125-udp DogStatsD"]
+    end
+
     APP --> PGB1 & PGB2
     PGB1 & PGB2 -->|transaction pooling| PGHA
     PG1 -->|WAL| PG2 & PG3
@@ -103,6 +127,9 @@ graph LR
     AGENT -->|render postgres.env| SVOL
     SVOL -. "read-only mount" .-> PGHA
     SVOL -. "read-only mount" .-> PGB1 & PGB2
+    DD -->|postgres check| PGHA
+    DD -->|pgbouncer check| PGB1 & PGB2
+    DD -->|http_check| ETCD & VAULT
 ```
 
 All containers share `pg-ha-network` (Docker bridge).
@@ -118,6 +145,7 @@ All containers share `pg-ha-network` (Docker bridge).
 | `vault-bootstrap-split.sh` | Splits `approle_<role>.json` → plain-text `role_id` + `secret_id` files |
 | `vault-secrets.sh` | Library: `fetch_secret_from_vault()` / `create_secret_in_vault()` |
 | `pgbouncer-health-check.sh` | `nc -z` connectivity checks for all nodes |
+| `datadog-health-check.sh` | Verifies Datadog Agent, checks integration status, Patroni/etcd/Vault reachability |
 
 ### Liquibase Changelog Structure
 ```
@@ -141,7 +169,7 @@ All changesets have rollback blocks — use `rollback-count N` to revert.
 
 ## Important Patterns
 
-**Feature flags in variables-ha.tf**: `liquibase_enabled`, `vault_enabled`, `pgbouncer_enabled`, `pgbouncer_replicas` — toggle features without touching resource definitions.
+**Feature flags in variables-ha.tf**: `liquibase_enabled`, `vault_enabled`, `pgbouncer_enabled`, `pgbouncer_replicas`, `datadog_enabled` — toggle features without touching resource definitions.
 
 **Secrets flow**: Vault is optional. When disabled, passwords come from Terraform-generated values passed as environment variables. When enabled, containers call the Vault HTTP API at startup to fetch/rotate credentials.
 
@@ -154,3 +182,5 @@ All changesets have rollback blocks — use `rollback-count N` to revert.
 **PgBouncer startup parameters**: `ignore_startup_parameters = extra_float_digits` must be set in `pgbouncer.ini` for JDBC driver compatibility.
 
 **pgvector**: Items table has a `embedding vector(1536)` column with an IVFFLAT index (`lists=100`). Suitable for cosine similarity search with OpenAI-compatible embeddings.
+
+**Datadog integration config**: `main-datadog.tf` renders three YAML files into `datadog/rendered/` (gitignored — contain plaintext passwords) at `terraform apply` time using `local_file` + `templatefile()`. Templates live in `datadog/conf.d/*.yaml.tpl`. The rendered files are bind-mounted into the Datadog Agent container at the paths expected by each integration (`/etc/datadog-agent/conf.d/<check>.d/conf.yaml`). `datadog_api_key` is sensitive — always pass via `TF_VAR_datadog_api_key`, never commit to tfvars.

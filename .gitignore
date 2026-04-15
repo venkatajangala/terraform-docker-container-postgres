@@ -16,3 +16,6 @@ start-claude.sh
 
 # Vault AppRole bootstrap credentials — contain plaintext role_id/secret_id, never commit
 .vault-bootstrap/
+
+# Datadog rendered integration configs — contain plaintext database passwords, never commit
+datadog/rendered/

@@ -1,8 +1,9 @@
 # PostgreSQL HA Cluster - Complete Deployment & Operations Guide
 
-> **Status:** ✓ DEPLOYED & TESTED | **Date:** 2026-03-31 | **Version:** HA + Liquibase
+> **Status:** ✓ DEPLOYED & TESTED | **Date:** 2026-04-15 | **Version:** HA + Liquibase + Vault + Datadog
 
 ## Table of Contents
+
 1. [Prerequisites](#prerequisites)
 2. [Deployment](#deployment)
 3. [Configuration](#configuration)
@@ -10,7 +11,8 @@
 5. [Operations](#operations)
 6. [Troubleshooting](#troubleshooting)
 7. [Monitoring](#monitoring)
-8. [Scaling](#scaling)
+8. [Datadog Observability](#datadog-observability)
+9. [Scaling](#scaling)
 
 ---
 
@@ -28,7 +30,8 @@
 - CPU: 4 cores minimum
 
 ### Network Ports
-```
+
+```text
 PostgreSQL Primary:    5432 (localhost)
 PostgreSQL Replica 1:  5433 (localhost)
 PostgreSQL Replica 2:  5434 (localhost)
@@ -41,6 +44,7 @@ etcd client:           2379 (localhost)
 etcd peer:             2380 (localhost)
 Vault API:             8200 (localhost)
 DBHub (Bytebase):      9090 (localhost)
+Datadog DogStatsD:     8125/udp (localhost, when datadog_enabled = true)
 ```
 
 ---
@@ -195,6 +199,7 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
 # Expected output:
 # NAMES                    STATUS                         PORTS
+# datadog-agent           Up 1 minute (healthy)          0.0.0.0:8125->8125/udp  ← only when datadog_enabled = true
 # pg-node-1               Up 1 minute (health: healthy)  0.0.0.0:5432->5432/tcp, 0.0.0.0:8008->8008/tcp
 # pg-node-2               Up 1 minute (health: healthy)  0.0.0.0:5433->5432/tcp, 0.0.0.0:8009->8008/tcp
 # pg-node-3               Up 1 minute (health: healthy)  0.0.0.0:5434->5432/tcp, 0.0.0.0:8010->8008/tcp
@@ -202,6 +207,7 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 # pgbouncer-2            Up 30s (health: healthy)       0.0.0.0:6433->6432/tcp
 # etcd                   Up 1 minute                    0.0.0.0:2379-2380->2379-2380/tcp
 # vault                  Up 1 minute (health: healthy)  0.0.0.0:8200->8200/tcp
+# vault-agent            Up 1 minute                    (internal only)
 ```
 
 ### Step 9: Get Terraform Outputs
@@ -693,6 +699,86 @@ Set up alerts for:
 - etcd member offline
 - Disk usage > 80%
 - Memory usage > 90%
+
+---
+
+## Datadog Observability
+
+The Datadog Agent is an optional container (`datadog_enabled` feature flag) that runs on `pg-ha-network` alongside the cluster. It provides metrics, logs, and integration checks for every component.
+
+### Enable Datadog
+
+```bash
+# 1. Set your API key (never commit this)
+export TF_VAR_datadog_api_key="your-api-key-here"
+
+# 2. Set datadog_enabled = true in ha-test.tfvars, then re-apply
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+
+# 3. Verify the agent started
+docker ps | grep datadog-agent
+
+# 4. Run the built-in health check
+bash datadog-health-check.sh
+```
+
+### Network Ports (when Datadog is enabled)
+
+```text
+Datadog DogStatsD:  8125/udp (localhost) — custom metrics from apps
+```
+
+### Integration Checks
+
+| Integration | What It Monitors | Config Source |
+| ----------- | ---------------- | ------------- |
+| `postgres` | Connections, query stats, replication lag on all 3 nodes | `datadog/rendered/postgres.yaml` |
+| `pgbouncer` | Pool utilisation, wait times, client/server counts | `datadog/rendered/pgbouncer.yaml` |
+| `http_check` | Patroni `/liveness` (×3), etcd `/health`, Vault `/v1/sys/health` | `datadog/rendered/http_check.yaml` |
+| `docker` | Container CPU, memory, I/O for all containers | auto via `/var/run/docker.sock` |
+| `process` | Host-level process metrics | auto via `/host/proc` |
+
+### Datadog Operations
+
+```bash
+# Full agent status (checks, forwarder, logs agent)
+docker exec datadog-agent agent status
+
+# Re-run individual integration checks
+docker exec datadog-agent agent check postgres
+docker exec datadog-agent agent check pgbouncer
+docker exec datadog-agent agent check http_check
+
+# Compact health report
+bash datadog-health-check.sh --status
+
+# Integration check results only
+bash datadog-health-check.sh --checks
+
+# Tail agent logs
+docker logs datadog-agent -f
+
+# Check rendered integration configs (gitignored — contain passwords)
+ls -la datadog/rendered/
+grep "host:" datadog/rendered/postgres.yaml
+grep "url:"  datadog/rendered/http_check.yaml
+```
+
+### Disable Datadog
+
+```bash
+# Set datadog_enabled = false in ha-test.tfvars and re-apply
+# The datadog-agent container and datadog-data volume are destroyed.
+# Rendered configs in datadog/rendered/ remain but are gitignored.
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+```
+
+### Production Notes
+
+- **API key**: Always pass via `TF_VAR_datadog_api_key`; never write it into `ha-test.tfvars`.
+- **Dedicated monitoring user**: For production, create a `datadog` PostgreSQL user with `pg_monitor` role instead of using the `postgres` superuser. Grant `SELECT ON pg_stat_*` system views.
+- **Datadog site**: Set `datadog_site = "datadoghq.eu"` for EU region or `"us3.datadoghq.com"` for US3.
+- **DogStatsD**: Applications on the Docker network can push custom metrics to `datadog-agent:8125/udp` without exposing the port to the host.
 
 ---
 

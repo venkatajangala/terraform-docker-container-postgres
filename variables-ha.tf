@@ -274,3 +274,43 @@ variable "liquibase_auto_run" {
   default     = true
   description = "Automatically run Liquibase migrations on container startup"
 }
+
+# ============================================================================
+# Datadog Agent — Monitoring & Observability
+# ============================================================================
+
+variable "datadog_enabled" {
+  type        = bool
+  default     = false
+  description = "Enable Datadog Agent container for metrics, logs, and integration checks"
+}
+
+variable "datadog_api_key" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Datadog API key. Set via TF_VAR_datadog_api_key env var or ha-test.tfvars (never commit)."
+}
+
+variable "datadog_site" {
+  type        = string
+  default     = "datadoghq.com"
+  description = "Datadog intake site. Use 'datadoghq.eu' for EU region, 'us3.datadoghq.com' for US3, etc."
+}
+
+variable "datadog_memory_mb" {
+  type        = number
+  default     = 512
+  description = "Memory limit for Datadog Agent container (MB)"
+
+  validation {
+    condition     = var.datadog_memory_mb >= 256 && var.datadog_memory_mb <= 2048
+    error_message = "datadog_memory_mb must be between 256MB and 2GB."
+  }
+}
+
+variable "datadog_statsd_port" {
+  type        = number
+  default     = 8125
+  description = "Host port mapped to Datadog DogStatsD (UDP). Applications send custom metrics here."
+}

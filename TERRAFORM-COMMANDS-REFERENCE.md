@@ -723,6 +723,82 @@ terraform apply tfplan_prod
 
 ---
 
-**Last Updated:** 2026  
-**Version:** Phase 1 Optimized  
+## Datadog Observability (Feature Flag)
+
+Datadog is an optional component toggled by `var.datadog_enabled`. The agent container, data volume, and all rendered integration configs are gated behind this flag.
+
+### Enable Datadog Agent
+
+```bash
+# Pass API key via environment variable (never commit it)
+export TF_VAR_datadog_api_key="your-api-key-here"
+
+# Enable in ha-test.tfvars: set datadog_enabled = true, then apply
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+
+# Or enable inline without editing tfvars
+terraform apply -var-file="ha-test.tfvars" \
+  -var="datadog_enabled=true" \
+  -var="datadog_api_key=${TF_VAR_datadog_api_key}" \
+  -auto-approve
+```
+
+### Disable Datadog Agent
+
+```bash
+# Set datadog_enabled = false in ha-test.tfvars and re-apply.
+# Removes the agent container + datadog-data volume; cluster is unaffected.
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+```
+
+### Target Datadog Resources Only
+
+```bash
+# Recreate agent container without touching the rest of the cluster
+terraform apply \
+  -target='docker_container.datadog_agent[0]' \
+  -var-file="ha-test.tfvars" -auto-approve
+
+# Destroy only the agent (leave cluster running)
+terraform destroy \
+  -target='docker_container.datadog_agent[0]' \
+  -target='docker_volume.datadog_data[0]' \
+  -auto-approve
+
+# Show current Datadog container state
+terraform state show 'docker_container.datadog_agent[0]'
+```
+
+### Datadog-Related Outputs
+
+```bash
+# Check if Datadog is enabled and get connection info
+terraform output datadog_enabled
+terraform output datadog_agent_info
+
+# Example output when enabled:
+# datadog_agent_info = {
+#   "agent_status"    = "docker exec datadog-agent agent status"
+#   "container_name"  = "datadog-agent"
+#   "health_check"    = "bash datadog-health-check.sh"
+#   "integrations"    = "postgres (3 nodes), pgbouncer (2 instances), http_check (...)"
+#   "site"            = "datadoghq.com"
+#   "statsd_endpoint" = "localhost:8125/udp"
+# }
+```
+
+### Key Datadog Variables
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `datadog_enabled` | `false` | Toggle the agent container on/off |
+| `datadog_api_key` | `""` | Datadog API key — use `TF_VAR_datadog_api_key` |
+| `datadog_site` | `"datadoghq.com"` | Datadog intake site (`datadoghq.eu` for EU) |
+| `datadog_memory_mb` | `512` | Agent container memory limit (256–2048 MB) |
+| `datadog_statsd_port` | `8125` | Host UDP port for DogStatsD custom metrics |
+
+---
+
+**Last Updated:** 2026-04-15
+**Version:** Phase 1 Optimized + Vault + Datadog
 **Tested Against:** Terraform 1.0+, Docker Provider 3.0+

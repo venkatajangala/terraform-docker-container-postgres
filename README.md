@@ -8,6 +8,7 @@
 ![Docker](https://img.shields.io/badge/Docker-Compose-blue)
 ![Terraform](https://img.shields.io/badge/Terraform-IaC-blue)
 ![Secrets](https://img.shields.io/badge/Secrets-Vault%20%28HashiCorp%20Vault%29-blue)
+![Monitoring](https://img.shields.io/badge/Monitoring-Datadog-purple)
 
 ## 🚀 Quick Start (5 Minutes)
 
@@ -93,6 +94,17 @@ unset PGPASSWORD
 - Initialised and unsealed automatically by `vault-bootstrap.sh` on first deploy
 - Fine-grained policies and audit logging
 
+### ✅ Observability (Datadog Agent)
+
+- **PostgreSQL metrics** — connections, query stats, replication lag on all 3 nodes
+- **PgBouncer metrics** — pool utilisation, wait times, client/server connections
+- **Patroni health** — per-node liveness + full cluster topology via REST API
+- **etcd health** — DCS availability check
+- **Vault health** — sealed/unsealed status (when `vault_enabled = true`)
+- **Container metrics** — CPU, memory, I/O for every container via Docker socket
+- **Log collection** — aggregated logs from all containers shipped to Datadog
+- Toggle with `datadog_enabled = true`; API key via `TF_VAR_datadog_api_key`
+
 ## 📊 System Architecture
 
 ```mermaid
@@ -113,7 +125,7 @@ graph TD
 
     LB[Liquibase migrations] -->|postgres_liquibase pool| PGB1
 
-    subgraph SECRETS["Secrets - optional"]
+    subgraph SECRETS["Secrets — optional (vault_enabled)"]
         VAULT[Vault :8200 Raft]
         AGENT[vault-agent sidecar]
         SVOL[(vault-agent-secrets)]
@@ -125,6 +137,17 @@ graph TD
     SVOL -. "read-only mount" .-> PG1
     SVOL -. "read-only mount" .-> PGB1 & PGB2
 
+    subgraph OBS["Observability — optional (datadog_enabled)"]
+        DD[Datadog Agent :8125-udp]
+    end
+
+    DD -->|postgres check| PG1 & PG2 & PG3
+    DD -->|pgbouncer check| PGB1 & PGB2
+    DD -->|http_check liveness| PG1 & PG2 & PG3
+    DD -->|http_check health| ETCD
+    DD -->|http_check health| VAULT
+    DD -. "docker.sock\ncontainer metrics+logs" .-> APP
+
     style PG1 fill:#2e7d32,color:#fff
     style PG2 fill:#1565c0,color:#fff
     style PG3 fill:#1565c0,color:#fff
@@ -134,6 +157,7 @@ graph TD
     style LB fill:#37474f,color:#fff
     style VAULT fill:#c62828,color:#fff
     style AGENT fill:#f57c00,color:#fff
+    style DD fill:#632ca6,color:#fff
 ```
 
 ## 🔑 Key Features
@@ -144,6 +168,7 @@ graph TD
 | **Connection Pooling** | PgBouncer reduces connection overhead |
 | **Automatic Recovery** | Cluster self-heals after node failures |
 | **Monitoring** | REST API + Web UI for cluster status |
+| **Observability** | Datadog Agent — metrics, logs, integration checks |
 | **Scalability** | Support for 1000s of concurrent connections |
 | **Production Ready** | Tested, documented, ready to deploy |
 
@@ -204,6 +229,30 @@ unset PGPASSWORD
 
 # View PgBouncer admin console (use password from generated_passwords output)
 PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 6432 -U pgadmin -d pgbouncer
+```
+
+### Datadog Monitoring
+
+```bash
+# Enable Datadog (set your API key first)
+export TF_VAR_datadog_api_key="your-api-key-here"
+
+# Edit ha-test.tfvars: set datadog_enabled = true, then re-apply
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+
+# Run the built-in health check
+bash datadog-health-check.sh
+
+# Full agent status
+docker exec datadog-agent agent status
+
+# Re-run individual integration checks
+docker exec datadog-agent agent check postgres
+docker exec datadog-agent agent check pgbouncer
+docker exec datadog-agent agent check http_check
+
+# Stream agent logs
+docker logs datadog-agent -f
 ```
 
 ### Secrets Management (Vault)
@@ -283,6 +332,7 @@ docker start pg-node-1
 │   ├── main-vault-init.tf           # vault-bootstrap.sh trigger (null_resource)
 │   ├── main-vault-agent.tf          # Vault Agent sidecar + shared secrets volume
 │   ├── main-liquibase.tf            # Liquibase one-shot migrations container
+│   ├── main-datadog.tf              # Datadog Agent container + rendered configs
 │   ├── variables-ha.tf
 │   ├── outputs-ha.tf
 │   └── ha-test.tfvars
@@ -307,9 +357,17 @@ docker start pg-node-1
 │   ├── vault-bootstrap.sh           # Init, unseal, AppRole, KV seed
 │   └── vault-bootstrap-split.sh     # Splits approle JSON → role_id / secret_id files
 │
+├── Datadog configuration
+│   ├── datadog/conf.d/              # Integration config templates (Terraform renders these)
+│   │   ├── postgres.yaml.tpl        # PostgreSQL check (all 3 nodes)
+│   │   ├── pgbouncer.yaml.tpl       # PgBouncer admin console check
+│   │   └── http_check.yaml.tpl      # Patroni + etcd + Vault HTTP checks
+│   └── datadog/rendered/            # Generated at plan time — gitignored (contain passwords)
+│
 └── Utilities
     ├── test-full-stack.sh           # Automated test suite
-    └── pgbouncer-health-check.sh    # Health check script
+    ├── pgbouncer-health-check.sh    # PgBouncer health check
+    └── datadog-health-check.sh      # Datadog Agent health check
 ```
 
 ## ⚙️ Configuration
@@ -332,6 +390,13 @@ pgbouncer_default_pool_size = 25                 # Tune for your workload
 patroni_api_port_base      = 8008
 postgres_port_base         = 5432
 pgbouncer_external_port_base = 6432
+
+# Datadog monitoring (optional)
+datadog_enabled     = false          # Set to true to deploy the Datadog Agent
+datadog_api_key     = ""             # Set via TF_VAR_datadog_api_key env var — never commit
+datadog_site        = "datadoghq.com"
+datadog_memory_mb   = 512
+datadog_statsd_port = 8125
 ```
 
 See `variables-ha.tf` for the full list of configuration options, or edit `ha-test.tfvars` to override defaults.
@@ -347,7 +412,9 @@ See `variables-ha.tf` for the full list of configuration options, or edit `ha-te
 - [ ] Restrict network access to authorized users
 - [ ] Enable PostgreSQL audit logging
 - [ ] Configure automated backups
-- [ ] Set up monitoring and alerts
+- [ ] Set up monitoring and alerts (Datadog: `datadog_enabled = true`)
+- [ ] Create a dedicated `datadog` PostgreSQL user with `pg_monitor` role instead of using postgres superuser
+- [ ] Rotate `DD_API_KEY` via secrets manager; never store in tfvars
 
 See the Security Boundaries section in [Architecture](docs/architecture/ARCHITECTURE.md) for a production hardening checklist.
 
@@ -437,8 +504,8 @@ See [PgBouncer Authentication](docs/pgbouncer/AUTHENTICATION.md) or [Troubleshoo
 - Terraform IaC fully validated
 - Deploy with confidence
 
-**Last Updated**: 2026-04-12  
-**Version**: PostgreSQL 18.2 + Patroni 3.3.8 + etcd 3.5.0 + PgBouncer 1.15
+**Last Updated**: 2026-04-15  
+**Version**: PostgreSQL 18.2 + Patroni 3.3.8 + etcd 3.5.0 + PgBouncer 1.15 + Datadog Agent 7
 
 ---
 

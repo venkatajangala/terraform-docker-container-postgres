@@ -157,3 +157,24 @@ output "pgbouncer_usage_guide" {
   } : null
   description = "PgBouncer usage instructions and benefits"
 }
+
+# ============================================================================
+# Datadog Agent Outputs
+# ============================================================================
+
+output "datadog_enabled" {
+  value       = var.datadog_enabled
+  description = "Whether the Datadog Agent container is deployed"
+}
+
+output "datadog_agent_info" {
+  value = var.datadog_enabled ? {
+    container_name  = docker_container.datadog_agent[0].name
+    statsd_endpoint = "localhost:${var.datadog_statsd_port}/udp"
+    site            = var.datadog_site
+    integrations    = "postgres (3 nodes), pgbouncer (${var.pgbouncer_replicas} instances), http_check (Patroni+etcd${var.vault_enabled ? "+Vault" : ""}), docker, process"
+    health_check    = "bash datadog-health-check.sh"
+    agent_status    = "docker exec datadog-agent agent status"
+  } : null
+  description = "Datadog Agent connection details and quick-reference commands"
+}

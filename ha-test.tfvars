@@ -35,4 +35,13 @@ vault_agent_enabled    = true
 // Liquibase tuning: give Patroni leader election extra time when Vault startup adds overhead
 liquibase_max_retries  = 60  // 60 x 5s = 5 min (default 30 x 5s = 2.5 min was too short)
 
-
+// Datadog Agent Configuration
+// Set datadog_enabled = true and supply your API key to activate monitoring.
+// NEVER commit a real API key — use the TF_VAR_datadog_api_key env var instead:
+//   export TF_VAR_datadog_api_key="your-actual-api-key"
+//   terraform apply -var-file="ha-test.tfvars" -auto-approve
+datadog_enabled     = false
+datadog_api_key     = ""           // Leave empty and set via TF_VAR_datadog_api_key
+datadog_site        = "datadoghq.com"  // Change to "datadoghq.eu" for EU region
+datadog_memory_mb   = 512
+datadog_statsd_port = 8125         // Host UDP port for DogStatsD custom metrics
