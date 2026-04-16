@@ -21,6 +21,10 @@ graph TD
         SVOL[("vault-agent-secrets\nshared volume")]
     end
 
+    subgraph OBS["Observability (optional — datadog_enabled)"]
+        DD["Datadog Agent<br/>:8125 UDP — DogStatsD"]
+    end
+
     APP --> PGB
     PGB --> PG1 & PG2 & PG3
     PG1 -->|"WAL streaming"| PG2 & PG3
@@ -30,6 +34,10 @@ graph TD
     AGENT -->|"render"| SVOL
     SVOL -. "postgres.env (read-only)" .-> PG1 & PG2 & PG3
     SVOL -. "postgres.env (read-only)" .-> PGB
+    DD -->|"postgres check"| PG1 & PG2 & PG3
+    DD -->|"pgbouncer check"| PGB
+    DD -->|"http_check"| ETCD & VAULT
+    DD -. "docker.sock metrics+logs" .-> APP
 ```
 
 ## Inside This Cluster
@@ -84,6 +92,20 @@ graph TD
 - **Output file**: `/etc/vault/secrets/postgres.env` — mounted read-only into all pg-node and pgbouncer containers
 - **Benefit**: Containers never hold credentials in their images or environment variables; secrets rotate without container rebuilds
 
+### 📊 Datadog Agent (Observability)
+
+- **Toggle**: `datadog_enabled = true` in `ha-test.tfvars` (off by default)
+- **API key**: Pass via `export TF_VAR_datadog_api_key="<key>"` — never commit to tfvars
+- **Port**: 8125 UDP (DogStatsD — custom metrics ingestion from other containers)
+- **Integrations enabled automatically**:
+  - `postgres` check — connects to all 3 Patroni nodes; collects connections, query stats, replication lag
+  - `pgbouncer` check — both PgBouncer instances; pool utilisation, wait times, client/server counts
+  - `http_check` — Patroni `/liveness` (3 nodes), etcd `/health`, Vault `/v1/sys/health`
+  - `docker` auto-discovery — CPU, memory, I/O for every container via Docker socket
+  - Log collection — all container stdout/stderr shipped to Datadog
+- **Health check**: `bash datadog-health-check.sh` — 9-section report covering container, API key, integration checks, reachability, and agent errors
+- **Config files**: Rendered at `terraform apply` time into `datadog/rendered/` (gitignored — contain passwords)
+
 ## Key Capabilities
 
 ### ✅ High Availability
@@ -101,8 +123,9 @@ graph TD
 ### ✅ Observability
 
 - **Cluster API**: REST endpoints show real-time cluster status
-- **Web UI**: Visual database management at http://localhost:9090
+- **Web UI**: Visual database management at `http://localhost:9090`
 - **Logs**: All container logs available via `docker logs`
+- **Datadog Agent** (optional): Full metrics pipeline — PostgreSQL, PgBouncer, Patroni, etcd, Vault, container-level telemetry. Enable with `datadog_enabled = true` and verify with `bash datadog-health-check.sh`
 
 ### ✅ Production Ready
 
@@ -241,7 +264,50 @@ for c in pg-node-1 pg-node-2 pg-node-3 pgbouncer-1 pgbouncer-2; do
 done
 ```
 
-### Scenario 5: I Want to Add More Data
+### Scenario 5: I Want to Monitor with Datadog
+
+**Prerequisites**: `datadog_enabled = true` in `ha-test.tfvars` and API key set.
+
+```bash
+# 1. Full 9-section health report
+bash datadog-health-check.sh
+
+# 2. Compact agent status
+bash datadog-health-check.sh --status
+
+# 3. Integration check results only
+bash datadog-health-check.sh --checks
+
+# 4. Re-run individual integration checks
+docker exec datadog-agent agent check postgres    # PostgreSQL metrics (all 3 nodes)
+docker exec datadog-agent agent check pgbouncer   # PgBouncer pool metrics
+docker exec datadog-agent agent check http_check  # Patroni + etcd + Vault liveness
+
+# 5. Full agent status (verbose)
+docker exec datadog-agent agent status
+
+# 6. Tail agent logs
+docker logs datadog-agent -f
+```
+
+**Expected output from `bash datadog-health-check.sh`:**
+
+```text
+── 1. Container Status ──  ✓ datadog-agent is running (Up X minutes (healthy))
+── 2. Agent Connectivity ── ✓ API key validated
+── 3. Integration Checks ── ✓ PostgreSQL — metrics collected
+                            ✓ PgBouncer  — metrics collected
+                            ✓ HTTP checks — metrics collected
+── 4. Patroni REST API ──── ✓ pg-node-1:8008/liveness → 200
+                            ✓ pg-node-2:8008/liveness → 200
+                            ✓ pg-node-3:8008/liveness → 200
+── 5–6. PostgreSQL/PgBouncer TCP ── ✓ all nodes reachable
+── 7. etcd Health ───────── ✓ etcd:2379/health → 200
+── 8. Vault Health ──────── ✓ vault:8200/v1/sys/health → 200
+── 9. Recent Agent Errors ─ ✓ No actionable errors
+```
+
+### Scenario 6: I Want to Add More Data
 
 ```bash
 # Create table
@@ -277,6 +343,7 @@ PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 5433 -U pg
 | 8010 | Patroni-3 | Cluster API | Monitoring |
 | 2379 | etcd | Configuration | Internal |
 | 8200 | Vault | Secrets API & UI | Optional (`vault_enabled`) |
+| 8125/udp | Datadog Agent | DogStatsD custom metrics | Optional (`datadog_enabled`) |
 | 9090 | DBHub | Web UI | Browser |
 
 ## File Organization
@@ -289,9 +356,13 @@ Your project:
 ├── main-vault.tf                ← Vault container + volume (Terraform)
 ├── main-vault-agent.tf          ← vault-agent sidecar (Terraform)
 ├── main-vault-init.tf           ← Vault bootstrap trigger (Terraform)
+├── main-datadog.tf              ← Datadog Agent container + rendered configs
 ├── variables-ha.tf              ← All configuration knobs
 ├── outputs-ha.tf                ← Connection strings & endpoints
 ├── ha-test.tfvars               ← Your deployment values
+├── datadog-health-check.sh      ← 9-section Datadog health report
+├── datadog/conf.d/              ← Integration config templates (postgres, pgbouncer, http_check)
+├── datadog/rendered/            ← Rendered configs with passwords (gitignored)
 ├── vault/config/vault.hcl       ← Vault server config (Raft backend)
 ├── vault-bootstrap.sh           ← Init, unseal, AppRole + KV seed
 ├── vault-secrets.sh             ← Shared Vault HTTP library (sourced by entrypoints)
@@ -326,6 +397,7 @@ Your project:
 - [ ] Enable PostgreSQL audit logging (`pgaudit`)
 - [ ] Configure automated backups
 - [ ] Enable `vault_enabled = true` and rotate AppRole `secret_id` regularly
+- [ ] Enable `datadog_enabled = true` and set a real API key via `TF_VAR_datadog_api_key`
 - [ ] Review the Security Boundaries section in [Architecture Overview](../architecture/ARCHITECTURE.md)
 
 ## Development vs Production
@@ -347,6 +419,7 @@ Your project:
 - 🔒 Enable Vault (`vault_enabled = true`) — see [Vault Quick Start](VAULT-QuickStart.md)
 - 🔒 Rotate Vault AppRole `secret_id` on a schedule
 - 🔒 Restrict Vault port 8200 to internal network only
+- 🔒 Enable Datadog (`datadog_enabled = true`) with a real API key for production monitoring
 
 ## Your Next Steps (Choose One)
 
@@ -406,6 +479,14 @@ done
 # Vault — read a KV secret
 VAULT_TOKEN=$(jq -r '.root_token' .vault-bootstrap/vault-init.json)
 curl -sf -H "X-Vault-Token: $VAULT_TOKEN" http://localhost:8200/v1/secret/data/pg/postgres | python3 -m json.tool
+
+# Datadog — full health report (requires datadog_enabled = true)
+bash datadog-health-check.sh
+
+# Datadog — re-run individual integration checks
+docker exec datadog-agent agent check postgres
+docker exec datadog-agent agent check pgbouncer
+docker exec datadog-agent agent check http_check
 ```
 
 ## Terminology
@@ -425,6 +506,9 @@ curl -sf -H "X-Vault-Token: $VAULT_TOKEN" http://localhost:8200/v1/secret/data/p
 | **vault-agent** | Sidecar container that authenticates with Vault and injects secrets into pg-node/pgbouncer containers |
 | **AppRole** | Vault auth method using role_id + secret_id pair (machine-to-machine authentication) |
 | **KV v2** | Vault Key-Value secrets engine v2 — versioned secret store |
+| **Datadog Agent** | Container-based observability agent; collects PostgreSQL, PgBouncer, Patroni, etcd, and Vault metrics |
+| **DogStatsD** | UDP protocol (port 8125) for pushing custom application metrics into Datadog |
+| **Integration check** | Datadog built-in check (postgres, pgbouncer, http_check) that scrapes metrics from a specific service |
 
 ## Frequently Asked Questions
 

@@ -1,12 +1,12 @@
 # 🧪 Testing Guide
 
-Comprehensive testing procedures and validation for PostgreSQL HA + PgBouncer + Vault infrastructure.
+Comprehensive testing procedures and validation for PostgreSQL HA + PgBouncer + Vault + Datadog infrastructure.
 
 ## Quick Test (5 minutes)
 
 ```bash
-# 1. Verify all 10 containers running
-docker ps | grep -E 'pg-node|pgbouncer|etcd|vault|dbhub'
+# 1. Verify all containers running (10 core + optional datadog-agent)
+docker ps | grep -E 'pg-node|pgbouncer|etcd|vault|dbhub|datadog'
 
 # 2. Run the full automated test suite (12 tests, 35 assertions)
 bash test-full-stack.sh
@@ -16,6 +16,9 @@ curl -s http://localhost:8008 | python3 -m json.tool
 
 # 4. Check Vault health
 curl -s http://localhost:8200/v1/sys/health | python3 -m json.tool
+
+# 5. Check Datadog health (if datadog_enabled = true)
+bash datadog-health-check.sh
 ```
 
 > **Passwords are auto-generated** by Terraform. Retrieve them with:
@@ -487,14 +490,86 @@ curl -s http://localhost:8010/health
 
 ---
 
+## Test Suite: Datadog Observability
+
+> Requires `datadog_enabled = true` in `ha-test.tfvars` and `TF_VAR_datadog_api_key` set.
+
+### Test 13: Datadog Agent Health
+
+```bash
+# Verify agent is running and healthy
+docker ps --format "{{.Names}}\t{{.Status}}" | grep datadog-agent
+# Expected: datadog-agent   Up X minutes (healthy)
+```
+
+### Test 14: Full Health Check Script
+
+```bash
+bash datadog-health-check.sh
+```
+
+**Expected — all sections green:**
+
+```text
+✓ datadog-agent is running
+✓ API key validated
+✓ PostgreSQL (pg-node-1,2,3) — metrics collected
+✓ PgBouncer (pgbouncer-1,2)  — metrics collected
+✓ HTTP checks (Patroni+etcd) — metrics collected
+✓ pg-node-1:8008/liveness → 200
+✓ pg-node-2:8008/liveness → 200
+✓ pg-node-3:8008/liveness → 200
+✓ pg-node-1:5432 — TCP reachable
+✓ pg-node-2:5432 — TCP reachable
+✓ pg-node-3:5432 — TCP reachable
+✓ pgbouncer-1:6432 — TCP reachable
+✓ pgbouncer-2:6432 — TCP reachable
+✓ etcd:2379/health → 200
+✓ vault:8200/v1/sys/health → 200
+✓ No actionable errors in last 100 log lines
+```
+
+### Test 15: PostgreSQL Integration Check
+
+```bash
+docker exec datadog-agent agent check postgres 2>&1 | grep -E "Series|CRITICAL|Error"
+# Expected: "=== Series ===" present; no CRITICAL or Error lines
+```
+
+### Test 16: PgBouncer Integration Check
+
+```bash
+docker exec datadog-agent agent check pgbouncer 2>&1 | grep -E "Series|CRITICAL|Error"
+# Expected: "=== Series ===" present; no CRITICAL or Error lines
+```
+
+### Test 17: HTTP Check (Patroni + etcd + Vault)
+
+```bash
+docker exec datadog-agent agent check http_check 2>&1 | grep -E "Series|CRITICAL|Error"
+# Expected: "=== Series ===" present; no CRITICAL or Error lines
+```
+
+### Test 18: Rendered Config Sanity
+
+```bash
+# Configs must exist and reference the correct hosts
+ls -la datadog/rendered/postgres.yaml datadog/rendered/pgbouncer.yaml datadog/rendered/http_check.yaml
+grep "host:" datadog/rendered/postgres.yaml   # should list pg-node-1, pg-node-2, pg-node-3
+grep "host:" datadog/rendered/pgbouncer.yaml  # should list pgbouncer-1, pgbouncer-2
+grep "url:"  datadog/rendered/http_check.yaml # should list Patroni + etcd + Vault URLs
+```
+
+---
+
 ## Next Steps
 
 1. **Production Deployment:** Review the Security Boundaries section in [Architecture Overview](../architecture/ARCHITECTURE.md)
 2. **Performance Tuning:** See [PgBouncer Authentication](../pgbouncer/AUTHENTICATION.md) and tune `pgbouncer_default_pool_size` / `pgbouncer_max_client_conn` in `ha-test.tfvars`
-3. **Monitoring Setup:** See [Operations & Maintenance](../guides/02-OPERATIONS.md)
-4. **Troubleshooting:** See [Troubleshooting Guide](../guides/03-TROUBLESHOOTING.md)
+3. **Monitoring Setup:** See [Operations & Maintenance](../guides/02-OPERATIONS.md) — Datadog section included
+4. **Troubleshooting:** See [Troubleshooting Guide](../guides/03-TROUBLESHOOTING.md) — Datadog section included
 
 ---
 
-**Last Updated:** March 15, 2026
-**Test Summary:** 35/35 assertions across 12 tests passed ✅
+**Last Updated:** April 15, 2026
+**Test Summary:** 35/35 assertions across 12 tests passed ✅ + Datadog Tests 13–18 (6 additional)

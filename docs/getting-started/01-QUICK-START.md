@@ -49,6 +49,7 @@ sleep 150
 - etcd cluster (for distributed consensus)
 - Vault server (Raft backend, secrets management — `vault_enabled`)
 - vault-agent sidecar (renders secrets to containers — `vault_enabled`)
+- Datadog Agent (metrics, logs, integration checks — `datadog_enabled`)
 - DBHub web UI (optional)
 
 ### Step 3: Verify (1 minute)
@@ -100,6 +101,24 @@ for c in pg-node-1 pg-node-2 pg-node-3 pgbouncer-1 pgbouncer-2; do
   docker exec "$c" sh -c 'test -f /etc/vault/secrets/postgres.env && echo OK || echo MISSING'
 done
 ```
+
+### Step 5: Verify Datadog Monitoring (optional — if `datadog_enabled = true`)
+
+```bash
+# Full 9-section health report
+bash datadog-health-check.sh
+
+# Expected: all ✓ green for container, integrations, reachability checks
+# Note: 403 errors in section 9 are expected with a test/placeholder API key
+
+# Re-run individual integration checks
+docker exec datadog-agent agent check postgres
+docker exec datadog-agent agent check pgbouncer
+docker exec datadog-agent agent check http_check
+```
+
+> To enable Datadog: set `datadog_enabled = true` in `ha-test.tfvars` and pass your API key as
+> `export TF_VAR_datadog_api_key="<your-key>"` before running `terraform apply`.
 
 ## Common Next Steps
 
@@ -168,6 +187,9 @@ curl -s http://localhost:9090/api/v1/info
 | Vault sealed | Unseal: `docker exec vault vault operator unseal $(jq -r '.unseal_keys_b64[0]' .vault-bootstrap/vault-init.json)` |
 | Vault permission denied | Fix volume: `docker run --rm -v vault-data:/vault/data alpine sh -c 'chown -R 100:1000 /vault/data'` |
 | Vault bootstrap files missing | Re-run bootstrap: `bash vault-bootstrap.sh` (only on fresh deploy) |
+| `datadog-agent` not running | Ensure `datadog_enabled = true` in `ha-test.tfvars`; re-apply Terraform |
+| Datadog shows `(unhealthy)` | Expected with test API key — ignored; use `bash datadog-health-check.sh` to verify |
+| Integration check: no metrics | Cluster may still be starting; wait 60 s and retry `docker exec datadog-agent agent check postgres` |
 
 ## What You Now Have
 
@@ -195,6 +217,15 @@ curl -s http://localhost:9090/api/v1/info
 - AppRole authentication
 - KV v2 secrets — PostgreSQL passwords auto-seeded
 - vault-agent sidecar injects `postgres.env` into all containers
+
+✅ **Datadog Observability** (optional — `datadog_enabled = true`)
+
+- PostgreSQL metrics for all 3 nodes
+- PgBouncer pool & connection metrics
+- Patroni REST API health checks
+- etcd and Vault health monitoring
+- Container-level CPU/memory/IO via Docker socket
+- Log collection from all containers
 
 ✅ **Web Management UI**
 

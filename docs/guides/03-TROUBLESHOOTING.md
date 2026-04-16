@@ -524,6 +524,182 @@ docker exec pg-node-1 psql -U postgres -d postgres \
   -c "GRANT pg_monitor TO pgadmin;"
 ```
 
+## Datadog Observability Issues
+
+### Datadog Agent Not Starting
+
+**Symptom**: `docker ps` shows no `datadog-agent` container, or container exits immediately.
+
+**Check 1: Feature flag enabled?**
+
+```bash
+grep "datadog_enabled" ha-test.tfvars
+# Must be: datadog_enabled = true
+```
+
+**Check 2: API key set?**
+
+```bash
+# The variable must be non-empty at apply time
+echo ${TF_VAR_datadog_api_key:-"NOT SET"}
+# If empty, set it before applying:
+export TF_VAR_datadog_api_key="your-api-key-here"
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+```
+
+**Check 3: View agent startup logs**
+
+```bash
+docker logs datadog-agent 2>&1 | head -40
+```
+
+---
+
+### Datadog Agent Shows `(unhealthy)` in `docker ps`
+
+**Symptom**: `docker ps` shows `datadog-agent ... (unhealthy)`
+
+**Cause A** (expected): Using a test/placeholder API key. The custom `DD_HEALTH_PORT=5555` healthcheck probes a local HTTP endpoint, so `(healthy)` only requires the agent process to be alive — not a valid API key. If the container still shows `(unhealthy)`, the agent process itself has not started.
+
+**Cause B**: Agent process crash (OOM, missing Docker socket, config error).
+
+**Resolution:**
+
+```bash
+# Check the actual health probe
+docker exec datadog-agent curl -sf http://localhost:5555 && echo "health OK"
+
+# View agent errors
+docker logs datadog-agent 2>&1 | grep -iE "error|fatal|panic" | head -20
+
+# Check memory — agent may be OOM-killed
+docker stats datadog-agent --no-stream
+
+# Increase memory limit if needed (edit ha-test.tfvars):
+# datadog_memory_mb = 768
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+```
+
+---
+
+### Integration Check Returns "No Series" or Error
+
+**Symptom**: `docker exec datadog-agent agent check postgres` shows no `=== Series ===` section, or reports `CRITICAL`.
+
+**Check 1: Is the cluster reachable from the agent container?**
+
+```bash
+# Test TCP reachability to each node
+docker exec datadog-agent bash -c \
+  "timeout 3 bash -c 'echo >/dev/tcp/pg-node-1/5432' && echo reachable || echo unreachable"
+```
+
+**Check 2: Are the rendered config files present?**
+
+```bash
+ls -la datadog/rendered/
+# Must contain: postgres.yaml, pgbouncer.yaml, http_check.yaml
+# If missing, re-apply Terraform:
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+```
+
+**Check 3: Verify config contains correct credentials**
+
+```bash
+# Check that postgres.yaml has a password set
+grep -c "password:" datadog/rendered/postgres.yaml
+# Should be > 0
+
+# Check that host entries are correct
+grep "host:" datadog/rendered/postgres.yaml
+```
+
+**Check 4: Run the full health check to isolate which check is failing**
+
+```bash
+bash datadog-health-check.sh --checks
+```
+
+**Resolution — password mismatch:**
+
+```bash
+# Confirm the current postgres password
+terraform output -json generated_passwords
+
+# Re-render configs with fresh passwords by forcing re-apply of local_file resources
+terraform apply -var-file="ha-test.tfvars" \
+  -replace='local_file.datadog_postgres_conf[0]' \
+  -replace='local_file.datadog_pgbouncer_conf[0]' \
+  -replace='local_file.datadog_http_check_conf[0]' \
+  -auto-approve
+
+# Then replace the agent to pick up the new mounts
+terraform apply -var-file="ha-test.tfvars" \
+  -replace='docker_container.datadog_agent[0]' -auto-approve
+```
+
+---
+
+### PgBouncer Check Fails but postgres Check Passes
+
+**Symptom**: `agent check pgbouncer` reports connection error; `agent check postgres` works.
+
+**Cause**: `pgbouncer_enabled = false` in `ha-test.tfvars`, or PgBouncer admin user credentials are wrong.
+
+```bash
+# Confirm pgbouncer containers are running
+docker ps | grep pgbouncer
+
+# Test admin console directly
+PGPASSWORD="$(terraform output -json generated_passwords | python3 -c \
+  'import sys,json; print(json.load(sys.stdin)["postgres_password"])')" \
+  psql -h localhost -p 6432 -U pgadmin -d pgbouncer -c "SHOW VERSION;"
+
+# Check the rendered pgbouncer config
+cat datadog/rendered/pgbouncer.yaml
+```
+
+---
+
+### HTTP Check Shows Endpoint DOWN
+
+**Symptom**: `agent check http_check` reports one or more endpoints as `DOWN`.
+
+```bash
+# Test the failing endpoint manually from inside the agent container
+docker exec datadog-agent curl -sv http://pg-node-1:8008/liveness
+docker exec datadog-agent curl -sv http://etcd:2379/health
+docker exec datadog-agent curl -sv http://vault:8200/v1/sys/health
+
+# Common causes:
+# - Patroni not yet elected a leader (wait and retry)
+# - Vault sealed: curl http://localhost:8200/v1/sys/health returns 503
+#   Fix: docker exec vault vault operator unseal $(jq -r '.unseal_keys_b64[0]' .vault-bootstrap/vault-init.json)
+```
+
+---
+
+### Agent Logs Flooded with 403 / 401 Errors
+
+**Symptom**: `docker logs datadog-agent` shows many `code=403` or `code=401` lines.
+
+**Cause** (expected): Placeholder or invalid Datadog API key — the forwarder cannot reach `datadoghq.com`. This does **not** affect local integration checks or the health check script.
+
+```bash
+# These are filtered in the health check script — confirm section 9 is clean
+bash datadog-health-check.sh 2>&1 | grep -A3 "9. Recent"
+# Expected: ✓ No actionable errors
+#           → 403 API key errors present (expected if using a test/placeholder key)
+```
+
+To fix for production: set a valid key and re-apply.
+
+```bash
+export TF_VAR_datadog_api_key="<real-api-key>"
+terraform apply -var-file="ha-test.tfvars" \
+  -replace='docker_container.datadog_agent[0]' -auto-approve
+```
+
 ## Getting Help
 
 ### Collect Diagnostic Information
@@ -543,12 +719,18 @@ docker logs pg-node-3 > diagnostics/pg-node-3.log 2>&1
 docker logs pgbouncer-1 > diagnostics/pgbouncer-1.log 2>&1
 docker logs pgbouncer-2 > diagnostics/pgbouncer-2.log 2>&1
 docker logs etcd > diagnostics/etcd.log 2>&1
+docker logs datadog-agent > diagnostics/datadog-agent.log 2>&1 || true
 
 # Cluster status
 curl -s http://localhost:8008/cluster | python3 -m json.tool > diagnostics/cluster.json 2>&1
 
 # PgBouncer status
 psql -h localhost -p 6432 -U pgadmin -d pgbouncer -c "SHOW POOLS;" > diagnostics/pools.txt 2>&1
+
+# Datadog integration check results (if agent running)
+docker exec datadog-agent agent check postgres  > diagnostics/dd-check-postgres.txt  2>&1 || true
+docker exec datadog-agent agent check pgbouncer > diagnostics/dd-check-pgbouncer.txt 2>&1 || true
+docker exec datadog-agent agent check http_check > diagnostics/dd-check-http.txt     2>&1 || true
 
 # Share this bundle with support
 tar czf diagnostics.tar.gz diagnostics/
@@ -565,6 +747,11 @@ tar czf diagnostics.tar.gz diagnostics/
 | `no leader elected` | etcd or Patroni issue | Restart cluster containers |
 | `permission denied` | Directory permissions | Check `chmod`/ownership inside container |
 | `out of memory` | RAM limit hit | Increase memory limit or reduce pool size |
+| `datadog-agent` not in `docker ps` | `datadog_enabled = false` or apply needed | Set `datadog_enabled = true` and re-apply |
+| DD check: `no series output` | Cluster not yet ready or bad credentials | Wait 60 s, re-render configs; check `datadog/rendered/postgres.yaml` |
+| DD check: `CRITICAL` / auth error | Wrong password in rendered config | Force re-apply of `local_file.datadog_postgres_conf[0]` and restart agent |
+| DD logs: `code=403` / `code=401` | Invalid/test API key | Expected in dev; set real key via `TF_VAR_datadog_api_key` for production |
+| DD container `(unhealthy)` | Agent process not responding on port 5555 | Check `docker logs datadog-agent`; increase `datadog_memory_mb` if OOM |
 
 ---
 

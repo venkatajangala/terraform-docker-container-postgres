@@ -15,6 +15,13 @@ Start here if you're new to this project:
 - **[Operations & Maintenance](guides/02-OPERATIONS.md)** — Day-to-day cluster operations
 - **[Troubleshooting](guides/03-TROUBLESHOOTING.md)** — Common issues and solutions
 
+## 📊 Monitoring & Observability (Datadog)
+
+- **Datadog Quick Start** — Enable with `datadog_enabled = true` and run `bash datadog-health-check.sh`
+- **Health Check Script** — `bash datadog-health-check.sh` covers 9 sections: container, connectivity, integration checks, Patroni, PostgreSQL, PgBouncer, etcd, Vault, agent errors
+- **Operations** — See [Operations Guide](guides/02-OPERATIONS.md#datadog-observability-monitoring) for daily monitoring tasks
+- **Troubleshooting** — See [Troubleshooting Guide](guides/03-TROUBLESHOOTING.md#datadog-observability-issues) for agent failures and integration errors
+
 ## 🔐 Secrets Management (Vault)
 
 - **[Vault Quick Start](getting-started/VAULT-QuickStart.md)** — Enable and verify in 5 minutes
@@ -35,7 +42,7 @@ Start here if you're new to this project:
 ## 🧪 Testing & Validation
 
 - **[Testing Guide](testing/TESTING.md)** — Full test suite: cluster health, failover, pooling
-- **[Testing Guide (root)](../TESTING-GUIDE.md)** — Alternate test reference
+- **[Testing Guide (root)](../TESTING-GUIDE.md)** — Full test suite including Section 8 Datadog Tests
 
 ## ⚙️ Infrastructure Reference
 
@@ -54,7 +61,7 @@ Start here if you're new to this project:
 ### 🛠️ Operator / DevOps (1-2 hours)
 
 1. Review [Architecture Overview](architecture/ARCHITECTURE.md)
-2. Run [Testing Guide](testing/TESTING.md)
+2. Run [Testing Guide](testing/TESTING.md) (includes Section 8 Datadog Tests)
 3. Bookmark [Troubleshooting](guides/03-TROUBLESHOOTING.md)
 4. Review [Operations & Maintenance](guides/02-OPERATIONS.md)
 
@@ -70,6 +77,7 @@ Start here if you're new to this project:
 1. Check [Troubleshooting](guides/03-TROUBLESHOOTING.md)
 2. Run diagnostic commands from [Operations Guide](guides/02-OPERATIONS.md)
 3. For secrets issues: [Vault Troubleshooting](guides/VAULT-TROUBLESHOOTING.md)
+4. For Datadog issues: see [Troubleshooting — Datadog section](guides/03-TROUBLESHOOTING.md#datadog-observability-issues)
 
 ## 📁 Current Documentation Structure
 
@@ -78,13 +86,13 @@ docs/
 ├── README.md                          ← You are here
 │
 ├── getting-started/
-│   ├── 01-QUICK-START.md             # 5-minute deployment
-│   ├── 02-NEW-USER-GUIDE.md          # Comprehensive introduction
+│   ├── 01-QUICK-START.md             # 5-minute deployment (Datadog opt-in step included)
+│   ├── 02-NEW-USER-GUIDE.md          # Comprehensive introduction + Datadog overview
 │   └── VAULT-QuickStart.md           # Vault bootstrap & AppRole quick start
 │
 ├── guides/
-│   ├── 02-OPERATIONS.md              # Running & maintenance
-│   ├── 03-TROUBLESHOOTING.md         # Common issues & fixes
+│   ├── 02-OPERATIONS.md              # Running & maintenance (Datadog section included)
+│   ├── 03-TROUBLESHOOTING.md         # Common issues & fixes (Datadog section included)
 │   └── VAULT-TROUBLESHOOTING.md      # Vault-specific issues
 │
 ├── pgbouncer/
@@ -94,7 +102,7 @@ docs/
 │   └── TESTING.md                    # Test procedures & scenarios
 │
 ├── architecture/
-│   └── ARCHITECTURE.md               # Full system architecture
+│   └── ARCHITECTURE.md               # Full system architecture (Datadog component section)
 │
 ├── VAULT-INTEGRATION.md              # Vault architecture & implementation
 └── VAULT-AGENT-SIDECAR.md            # Vault Agent sidecar pattern
@@ -120,6 +128,14 @@ curl -s http://localhost:8008/leader | python3 -m json.tool
 
 # PgBouncer admin console
 PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 6432 -U pgadmin -d pgbouncer -c "SHOW POOLS;"
+
+# Datadog health check (requires datadog_enabled = true)
+bash datadog-health-check.sh
+
+# Datadog integration checks
+docker exec datadog-agent agent check postgres
+docker exec datadog-agent agent check pgbouncer
+docker exec datadog-agent agent check http_check
 ```
 
 ## 📈 Infrastructure Status
@@ -129,8 +145,9 @@ PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 6432 -U pg
 - ✅ etcd distributed consensus
 - ✅ PgBouncer connection pooling (2 instances)
 - ✅ Liquibase schema migrations (HA-aware)
-- ✅ Vault secrets management (optional)
+- ✅ Vault secrets management (optional — `vault_enabled`)
 - ✅ pgvector support (1536-dim IVFFLAT)
+- ✅ Datadog Agent observability (optional — `datadog_enabled`)
 
 ---
 

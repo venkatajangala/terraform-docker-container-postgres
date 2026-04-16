@@ -19,10 +19,14 @@ graph TD
     ETCD["etcd Cluster<br/>:2379 / :2380<br/>Leader election · Cluster state · Safe failover"]
     DBHUB["DBHub / Bytebase (optional)<br/>:9090 — Web Management UI"]
 
-    subgraph SECRETS["Secrets Management Layer (optional)"]
+    subgraph SECRETS["Secrets Management Layer (optional — vault_enabled)"]
         VAULT["Vault Server<br/>:8200 · Raft backend"]
         AGENT["vault-agent sidecar<br/>renders postgres.env"]
         SVOL["vault-agent-secrets<br/>shared volume"]
+    end
+
+    subgraph OBS["Observability Layer (optional — datadog_enabled)"]
+        DD["Datadog Agent<br/>:8125 UDP · DogStatsD"]
     end
 
     APP --> PGB1 & PGB2
@@ -35,6 +39,11 @@ graph TD
     AGENT -->|"render"| SVOL
     SVOL -. "read-only mount" .-> PGHA
     SVOL -. "read-only mount" .-> PGB1 & PGB2
+    DD -->|"postgres check"| PGHA
+    DD -->|"pgbouncer check"| PGB1 & PGB2
+    DD -->|"http_check liveness"| PGHA
+    DD -->|"http_check health"| ETCD & VAULT
+    DD -. "docker.sock — container metrics + logs" .-> APP
 ```
 
 ## Component Details
@@ -311,7 +320,103 @@ sequenceDiagram
 | `main-vault-init.tf` | `null_resource.vault_init` — triggers `vault-bootstrap.sh` after volume perms are set |
 | `.vault-bootstrap/vault-init.json` | Root token + unseal keys (gitignored, chmod 600) |
 
-### 6. Network Topology
+### 6. Datadog Observability Layer
+
+The Datadog Agent is an optional, feature-flagged container (`datadog_enabled = true`) that provides full-stack observability across every component in the cluster. It is deployed alongside the core stack and shares the same `pg-ha-network` Docker bridge.
+
+#### Datadog Architecture
+
+```mermaid
+graph TD
+    subgraph AGENT["Datadog Agent Container (datadog-agent)"]
+        PG_CHK["postgres check<br/>3 instances: pg-node-1/2/3"]
+        PGB_CHK["pgbouncer check<br/>2 instances: pgbouncer-1/2"]
+        HTTP_CHK["http_check<br/>Patroni liveness × 3<br/>etcd health<br/>Vault health"]
+        DOCKER_CHK["docker check<br/>auto-discovery via /var/run/docker.sock"]
+        LOGS["Log pipeline<br/>DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL"]
+        STATSD["DogStatsD :8125 UDP<br/>custom app metrics"]
+    end
+
+    subgraph TARGETS["Monitored Targets"]
+        PG1["pg-node-1 :5432"]
+        PG2["pg-node-2 :5432"]
+        PG3["pg-node-3 :5432"]
+        PGB1["pgbouncer-1 :6432"]
+        PGB2["pgbouncer-2 :6432"]
+        PAT1["pg-node-1 :8008/liveness"]
+        PAT2["pg-node-2 :8009/liveness"]
+        PAT3["pg-node-3 :8010/liveness"]
+        ETCD["etcd :2379/health"]
+        VAULT["vault :8200/v1/sys/health"]
+        SOCK["/var/run/docker.sock"]
+    end
+
+    PG_CHK -->|"SCRAM-SHA-256"| PG1 & PG2 & PG3
+    PGB_CHK -->|"admin console"| PGB1 & PGB2
+    HTTP_CHK --> PAT1 & PAT2 & PAT3 & ETCD & VAULT
+    DOCKER_CHK -->|"read-only bind"| SOCK
+    LOGS -->|"read-only bind"| SOCK
+```
+
+#### Integration Check Configuration
+
+Integration configs are **rendered at `terraform apply` time** via `local_file` + `templatefile()` resources in `main-datadog.tf`. The rendered YAML files (with real passwords injected) land in `datadog/rendered/` (gitignored) and are bind-mounted read-only into the container.
+
+| Template | Rendered | Mount path in container |
+| -------- | -------- | ----------------------- |
+| `datadog/conf.d/postgres.yaml.tpl` | `datadog/rendered/postgres.yaml` | `/etc/datadog-agent/conf.d/postgres.d/conf.yaml` |
+| `datadog/conf.d/pgbouncer.yaml.tpl` | `datadog/rendered/pgbouncer.yaml` | `/etc/datadog-agent/conf.d/pgbouncer.d/conf.yaml` |
+| `datadog/conf.d/http_check.yaml.tpl` | `datadog/rendered/http_check.yaml` | `/etc/datadog-agent/conf.d/http_check.d/conf.yaml` |
+
+#### Key Metrics Collected
+
+| Check | Example metrics |
+| ----- | --------------- |
+| `postgres` | `postgresql.connections`, `postgresql.percent_usage_connections`, `postgresql.replication_delay`, `postgresql.database_size`, `postgresql.active_queries` |
+| `pgbouncer` | `pgbouncer.pools.sv_active`, `pgbouncer.pools.cl_waiting`, `pgbouncer.stats.total_query_count`, `pgbouncer.stats.avg_query_time` |
+| `http_check` | `network.http.can_connect`, `network.http.response_time` — per Patroni node, etcd, and Vault |
+| `docker` | `docker.cpu.user`, `docker.mem.rss`, `docker.io.read_bytes` — per container |
+
+#### Agent Health Endpoint
+
+The container overrides the default `agent health` healthcheck (which requires the forwarder to reach `datadoghq.com`) with a lightweight HTTP probe:
+
+```text
+DD_HEALTH_PORT=5555
+healthcheck: CMD curl -sf http://localhost:5555
+```
+
+This avoids false `(unhealthy)` status when using a test/placeholder API key in local development.
+
+#### Feature Flags & Variables
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `datadog_enabled` | `false` | Set `true` to deploy the Datadog Agent container |
+| `datadog_api_key` | `""` (sensitive) | Pass via `TF_VAR_datadog_api_key` — never commit |
+| `datadog_site` | `datadoghq.com` | Datadog intake endpoint (change for EU: `datadoghq.eu`) |
+| `datadog_memory_mb` | `512` | Memory limit for the agent container |
+| `datadog_statsd_port` | `8125` | Host-side UDP port for DogStatsD |
+
+#### Verification
+
+```bash
+# Full 9-section health report
+bash datadog-health-check.sh
+
+# Individual integration checks
+docker exec datadog-agent agent check postgres
+docker exec datadog-agent agent check pgbouncer
+docker exec datadog-agent agent check http_check
+
+# Full agent status
+docker exec datadog-agent agent status
+
+# Tail logs
+docker logs datadog-agent -f
+```
+
+### 7. Network Topology
 
 #### Docker Network
 
@@ -327,6 +432,7 @@ graph TD
         DBHUB["dbhub<br/>172.20.0.8"]
         VAULT["vault<br/>172.20.0.9"]
         VAGENT["vault-agent<br/>172.20.0.10"]
+        DD["datadog-agent<br/>172.20.0.11 (optional)"]
     end
 
     HOST["Host Machine"]
@@ -340,6 +446,7 @@ graph TD
     HOST -->|":8010"| PG3
     HOST -->|":2379"| ETCD
     HOST -->|":8200"| VAULT
+    HOST -->|":8125 UDP"| DD
     HOST -->|":9090"| DBHUB
     VAGENT -->|"AppRole :8200"| VAULT
 ```
@@ -472,6 +579,7 @@ sequenceDiagram
 | etcd | ~100 MB |
 | Vault | ~200 MB + Raft storage |
 | vault-agent | ~50 MB |
+| Datadog Agent | ~512 MB (configurable via `datadog_memory_mb`) |
 | DBHub | ~500 MB |
 
 ## Failure Modes & Recovery
@@ -488,6 +596,8 @@ sequenceDiagram
 | Vault sealed (after restart) | Container startup | `vault operator unseal $(jq -r '.unseal_keys_b64[0]' .vault-bootstrap/vault-init.json)` | 0 sec (DB containers keep cached `postgres.env` until next restart) |
 | vault-agent crashes | Container health check | Docker restarts agent; re-authenticates and re-renders secrets | 0 sec (secret file already rendered) |
 | Vault data volume lost | Manual detection | Re-run `vault-bootstrap.sh` after recreating volume; rotate all secrets | Full re-bootstrap required |
+| Datadog Agent crashes | Container health check | Docker restarts agent (`restart = "unless-stopped"`); metrics resume after ~60 s start period | 0 sec (no data path dependency) |
+| Datadog Agent unhealthy | `DD_HEALTH_PORT=5555` probe | Check API key validity; review `docker logs datadog-agent`; run `bash datadog-health-check.sh` | 0 sec (observability-only, not on data path) |
 
 ## Security Boundaries
 
@@ -505,6 +615,7 @@ graph TD
             VAULT["vault (AppRole + KV v2)"]
             VAGENT["vault-agent (renders secrets)"]
             SVOL[("vault-agent-secrets\nread-only → pg-node + pgbouncer")]
+            DD["datadog-agent (optional)\ndocker.sock read-only"]
             DBHUB["dbhub"]
         end
     end

@@ -14,7 +14,7 @@ curl -s http://localhost:8008/leader | python3 -m json.tool
 curl -s http://localhost:8008/cluster | python3 -m json.tool | grep -E '"name"|"state"|"role"|"lag"'
 
 # Check all containers
-docker ps | grep -E 'pg-node|pgbouncer|etcd|vault|dbhub'
+docker ps | grep -E 'pg-node|pgbouncer|etcd|vault|dbhub|datadog'
 
 # Expected containers:
 #   pg-node-1, pg-node-2, pg-node-3   (PostgreSQL + Patroni)
@@ -22,6 +22,7 @@ docker ps | grep -E 'pg-node|pgbouncer|etcd|vault|dbhub'
 #   etcd                               (distributed config store)
 #   vault                              (HashiCorp Vault, Raft backend — optional)
 #   vault-agent                        (Vault Agent sidecar — optional)
+#   datadog-agent                      (Datadog Agent — optional, datadog_enabled)
 #   dbhub                              (Bytebase web UI)
 ```
 
@@ -55,6 +56,9 @@ docker logs pgbouncer-2 -f
 
 # etcd logs
 docker logs etcd -f
+
+# Datadog Agent logs (if datadog_enabled = true)
+docker logs datadog-agent -f
 ```
 
 ## Weekly Maintenance Tasks
@@ -430,6 +434,103 @@ sleep 60
 curl -s http://localhost:8008/cluster | python3 -m json.tool
 ```
 
+## Datadog Observability (Monitoring)
+
+> Requires `datadog_enabled = true` in `ha-test.tfvars` and `TF_VAR_datadog_api_key` set.
+
+### Daily Datadog Health Check
+
+Run the health check script after every deployment or at the start of each shift:
+
+```bash
+# Full 9-section report (recommended)
+bash datadog-health-check.sh
+
+# Compact status summary
+bash datadog-health-check.sh --status
+
+# Integration check results only
+bash datadog-health-check.sh --checks
+```
+
+**What each section verifies:**
+
+| Section | Checks |
+| ------- | ------ |
+| 1. Container Status | `datadog-agent` is running and healthy |
+| 2. Agent Connectivity | API key validated; agent hostname reported |
+| 3. Integration Checks | `postgres`, `pgbouncer`, `http_check` — each shows `metrics collected` |
+| 4. Patroni REST API | `/liveness` → HTTP 200 on all 3 nodes |
+| 5. PostgreSQL TCP | Port 5432 reachable on all 3 nodes |
+| 6. PgBouncer TCP | Port 6432 reachable on both poolers |
+| 7. etcd Health | `/health` → HTTP 200 |
+| 8. Vault Health | `/v1/sys/health` → HTTP 200 (if `vault_enabled`) |
+| 9. Agent Errors | No actionable errors in last 100 log lines |
+
+### Re-run Individual Integration Checks
+
+```bash
+# PostgreSQL metrics (all 3 Patroni nodes)
+docker exec datadog-agent agent check postgres
+
+# PgBouncer pool metrics (both instances)
+docker exec datadog-agent agent check pgbouncer
+
+# HTTP liveness checks (Patroni + etcd + Vault)
+docker exec datadog-agent agent check http_check
+
+# Full verbose agent status
+docker exec datadog-agent agent status
+```
+
+### Enable / Disable Datadog
+
+```bash
+# Enable (set API key first)
+export TF_VAR_datadog_api_key="<your-real-api-key>"
+# Edit ha-test.tfvars: datadog_enabled = true
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+
+# Disable (removes the container, frees ~512 MB RAM)
+# Edit ha-test.tfvars: datadog_enabled = false
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+
+# Replace agent only (config change, no cluster disruption)
+terraform apply -var-file="ha-test.tfvars" \
+  -replace='docker_container.datadog_agent[0]' -auto-approve
+```
+
+### Update Datadog API Key
+
+```bash
+# Step 1: Export the new key
+export TF_VAR_datadog_api_key="<new-api-key>"
+
+# Step 2: Re-apply — replaces only the agent container
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+
+# Step 3: Verify connectivity
+docker exec datadog-agent agent status | grep "API key"
+```
+
+### Inspect Rendered Integration Configs
+
+The rendered configs in `datadog/rendered/` contain plaintext passwords. Check them only when debugging integration failures:
+
+```bash
+# List rendered files
+ls -la datadog/rendered/
+
+# Verify postgres check targets all 3 nodes
+grep "host:" datadog/rendered/postgres.yaml
+
+# Verify pgbouncer check targets both instances
+grep "host:" datadog/rendered/pgbouncer.yaml
+
+# Verify http_check has all Patroni + etcd + Vault URLs
+grep "url:" datadog/rendered/http_check.yaml
+```
+
 ## Monitoring Health
 
 ### Create Monitoring Dashboard
@@ -488,10 +589,13 @@ curl -s http://localhost:8008/cluster
 
 - [ ] Core containers running: pg-node-1/2/3, pgbouncer-1/2, etcd, dbhub
 - [ ] Optional: vault, vault-agent (if `vault_enabled = true`)
+- [ ] Optional: datadog-agent (if `datadog_enabled = true`)
 - [ ] All 3 PostgreSQL nodes running
 - [ ] All 2 PgBouncer instances healthy
 - [ ] etcd cluster has quorum (2/2 or 3/3)
 - [ ] Vault healthy: `curl -s http://localhost:8200/v1/sys/health`
+- [ ] Datadog health check all green: `bash datadog-health-check.sh`
+- [ ] All 3 Datadog integration checks collecting metrics
 - [ ] Replication lag < 100ms
 - [ ] No connection pool exhaustion
 - [ ] No slow queries > 5s
