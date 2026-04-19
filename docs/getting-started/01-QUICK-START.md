@@ -50,6 +50,8 @@ sleep 150
 - Vault server (Raft backend, secrets management — `vault_enabled`)
 - vault-agent sidecar (renders secrets to containers — `vault_enabled`)
 - Datadog Agent (metrics, logs, integration checks — `datadog_enabled`)
+- nginx status dashboard (cluster overview at :5005 — `dashboard_enabled`)
+- Prometheus + Grafana + exporters (dashboards at :3000, metrics at :9091 — `monitoring_enabled`)
 - DBHub web UI (optional)
 
 ### Step 3: Verify (1 minute)
@@ -119,6 +121,38 @@ docker exec datadog-agent agent check http_check
 
 > To enable Datadog: set `datadog_enabled = true` in `ha-test.tfvars` and pass your API key as
 > `export TF_VAR_datadog_api_key="<your-key>"` before running `terraform apply`.
+
+### Step 6: Verify Local Monitoring Stack (if `monitoring_enabled = true`)
+
+The local Prometheus + Grafana stack and nginx status dashboard are enabled by default in `ha-test.tfvars`.
+
+```bash
+# Full 7-section health report
+bash monitoring-health-check.sh
+
+# Expected output:
+#   ✓ postgres-exporter-1/2/3  running
+#   ✓ prometheus               running
+#   ✓ grafana                  running
+#   ✓ All 6 Prometheus targets healthy
+#   ✓ pg-node-1/2/3            UP (pg_up = 1)
+#   ✓ Both Grafana dashboards provisioned
+#   ✓ nginx proxy endpoints responding
+
+# Focused checks
+bash monitoring-health-check.sh --targets    # Scrape target status
+bash monitoring-health-check.sh --metrics    # pg_up per node
+bash monitoring-health-check.sh --dashboard  # nginx proxy HTTP codes
+```
+
+**Access the UIs:**
+
+| URL | Service | Credentials |
+| --- | ------- | ----------- |
+| `http://localhost:5005` | nginx status dashboard | none (anonymous) |
+| `http://localhost:3000` | Grafana dashboards | admin / admin |
+| `http://localhost:9091` | Prometheus UI | none |
+| `http://localhost:9091/targets` | Prometheus scrape targets | none |
 
 ## Common Next Steps
 
@@ -226,6 +260,13 @@ curl -s http://localhost:9090/api/v1/info
 - etcd and Vault health monitoring
 - Container-level CPU/memory/IO via Docker socket
 - Log collection from all containers
+
+✅ **Local Monitoring Stack** (`monitoring_enabled = true`, `dashboard_enabled = true`)
+
+- nginx status dashboard at `http://localhost:5005` — live Patroni/etcd/Vault/Datadog overview
+- Prometheus at `http://localhost:9091` — scrapes all 3 postgres_exporter and 2 pgbouncer_exporter containers
+- Grafana at `http://localhost:3000` — two pre-provisioned dashboards (PostgreSQL Cluster + PgBouncer Pool)
+- Health check: `bash monitoring-health-check.sh`
 
 ✅ **Web Management UI**
 

@@ -23,6 +23,11 @@ docker ps | grep -E 'pg-node|pgbouncer|etcd|vault|dbhub|datadog'
 #   vault                              (HashiCorp Vault, Raft backend — optional)
 #   vault-agent                        (Vault Agent sidecar — optional)
 #   datadog-agent                      (Datadog Agent — optional, datadog_enabled)
+#   pg-dashboard                       (nginx status dashboard — optional, dashboard_enabled)
+#   postgres-exporter-1/2/3            (pg metrics exporters — optional, monitoring_enabled)
+#   pgbouncer-exporter-1/2             (pgbouncer metrics exporters — optional, monitoring_enabled)
+#   prometheus                         (metrics store — optional, monitoring_enabled)
+#   grafana                            (dashboards — optional, monitoring_enabled)
 #   dbhub                              (Bytebase web UI)
 ```
 

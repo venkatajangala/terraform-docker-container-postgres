@@ -116,7 +116,7 @@ resource "docker_container" "datadog_agent" {
   # HTTP probe on DD_HEALTH_PORT=5555.  This avoids false UNHEALTHY status when
   # the forwarder can't reach datadoghq.com (e.g. invalid / test API key).
   healthcheck {
-    test         = ["CMD", "curl", "-sf", "http://localhost:5555"]
+    test         = ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5555 || exit 1"]
     interval     = "30s"
     timeout      = "5s"
     start_period = "60s"

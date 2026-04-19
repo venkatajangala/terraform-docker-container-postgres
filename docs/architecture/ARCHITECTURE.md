@@ -29,6 +29,14 @@ graph TD
         DD["Datadog Agent<br/>:8125 UDP · DogStatsD"]
     end
 
+    subgraph MON["Local Monitoring (optional — monitoring_enabled + dashboard_enabled)"]
+        DASH["pg-dashboard nginx<br/>:5005 — status overview"]
+        PROM["Prometheus<br/>:9091 — metrics store"]
+        GRAF["Grafana<br/>:3000 — dashboards"]
+        PGE["postgres-exporter × 3<br/>:9187 — pg metrics"]
+        PGBE["pgbouncer-exporter × 2<br/>:9127 — pool metrics"]
+    end
+
     APP --> PGB1 & PGB2
     PGB1 & PGB2 -->|"TCP 6432 / 6433 — transaction pooling"| PGHA
     PG1 -->|"WAL streaming"| PG2 & PG3
@@ -44,6 +52,11 @@ graph TD
     DD -->|"http_check liveness"| PGHA
     DD -->|"http_check health"| ETCD & VAULT
     DD -. "docker.sock — container metrics + logs" .-> APP
+    PGE -->|"connect :5432"| PGHA
+    PGBE -->|"admin :6432"| PGB1 & PGB2
+    PROM -->|"scrape"| PGE & PGBE
+    GRAF -->|"PromQL"| PROM
+    DASH -. "proxy /api/*" .-> PGHA & ETCD & VAULT
 ```
 
 ## Component Details
@@ -416,7 +429,113 @@ docker exec datadog-agent agent status
 docker logs datadog-agent -f
 ```
 
-### 7. Network Topology
+### 7. Local Monitoring Stack
+
+The local monitoring stack is an optional set of containers (`monitoring_enabled = true`, `dashboard_enabled = true`) that provide full observability without requiring an external SaaS subscription. It is feature-flagged independently of the Datadog agent.
+
+#### Monitoring Architecture
+
+```mermaid
+graph TD
+    subgraph MON["Local Monitoring Stack"]
+        DASH["pg-dashboard\nnginx :5005"]
+        PROM["Prometheus\n:9091"]
+        GRAF["Grafana\n:3000"]
+        PGE1["postgres-exporter-1\n:9187"]
+        PGE2["postgres-exporter-2\n:9187"]
+        PGE3["postgres-exporter-3\n:9187"]
+        PGBE1["pgbouncer-exporter-1\n:9127"]
+        PGBE2["pgbouncer-exporter-2\n:9127"]
+    end
+
+    subgraph CLUSTER["pg-ha-cluster"]
+        PG1["pg-node-1 :5432"]
+        PG2["pg-node-2 :5432"]
+        PG3["pg-node-3 :5432"]
+        PGB1["pgbouncer-1 :6432"]
+        PGB2["pgbouncer-2 :6432"]
+        ETCD["etcd :2379"]
+        VAULT["vault :8200"]
+    end
+
+    PGE1 -->|"DATA_SOURCE_NAME\npostgres@pg-node-1:5432"| PG1
+    PGE2 -->|"DATA_SOURCE_NAME\npostgres@pg-node-2:5432"| PG2
+    PGE3 -->|"DATA_SOURCE_NAME\npostgres@pg-node-3:5432"| PG3
+    PGBE1 -->|"--pgBouncer.connectionString\npgadmin@pgbouncer-1:6432"| PGB1
+    PGBE2 -->|"--pgBouncer.connectionString\npgadmin@pgbouncer-2:6432"| PGB2
+    PROM -->|"scrape :9187"| PGE1 & PGE2 & PGE3
+    PROM -->|"scrape :9127"| PGBE1 & PGBE2
+    GRAF -->|"PromQL datasource"| PROM
+    DASH -. "proxy /api/cluster" .-> PG1
+    DASH -. "proxy /api/etcd" .-> ETCD
+    DASH -. "proxy /api/vault" .-> VAULT
+```
+
+#### Components
+
+| Container | Image | Role | Host Port |
+| --------- | ----- | ---- | --------- |
+| `postgres-exporter-1/2/3` | `prometheuscommunity/postgres-exporter:latest` | Scrapes `pg_up`, connections, transactions, cache, locks, checkpoints per node | internal only |
+| `pgbouncer-exporter-1/2` | `prometheuscommunity/pgbouncer-exporter:v0.7.0` | Scrapes PgBouncer pool stats via admin console | internal only |
+| `prometheus` | `prom/prometheus:v2.54.1` | Scrapes all exporters; 15-day retention; lifecycle reload | `9091` |
+| `grafana` | `grafana/grafana:11.3.0` | Pre-provisioned dashboards; anonymous read-only access | `3000` |
+| `pg-dashboard` | `nginx:alpine` | Reverse proxy + single-page cluster status HTML | `5005` |
+
+#### Grafana Dashboards
+
+Both dashboards are provisioned automatically via bind-mounted files in `monitoring/grafana/provisioning/`:
+
+| Dashboard | UID | Panels |
+| --------- | --- | ------ |
+| PostgreSQL Cluster | `pg-ha-postgres` | Node status (× 3), active connections, DB size, cache hit ratio gauge, transaction rate, connections by node, locks by mode, checkpoint rate |
+| PgBouncer Pool | `pg-ha-pgbouncer` | Active clients, waiting clients (red ≥ 1), server active/idle, client connections timeseries, query rate, max wait time, server pool breakdown |
+
+Checkpoint queries use a `rate(...) or rate(...)` PromQL fallback for cross-version compatibility (PostgreSQL ≤ 16 uses `pg_stat_bgwriter`; PostgreSQL 17+ uses `pg_stat_checkpointer`).
+
+#### nginx Dashboard Proxy Endpoints
+
+The `pg-dashboard` container proxies internal cluster APIs so the browser never needs to reach containers directly:
+
+| Path | Proxied to | Content |
+| ---- | ---------- | ------- |
+| `/` | Static `index.html` | Cluster status single-page app |
+| `/api/cluster` | `pg-node-1:8008/cluster` | Patroni cluster JSON |
+| `/api/leader` | `pg-node-1:8008/leader` | Patroni leader JSON |
+| `/api/etcd` | `etcd:2379/health` | etcd health JSON |
+| `/api/vault` | `vault:8200/v1/sys/health` | Vault sys/health JSON |
+| `/api/datadog` | `datadog-agent:5555` | Datadog Agent health probe |
+
+Docker DNS (`resolver 127.0.0.11`) with `set $var` lazy resolution ensures the proxy starts even when backend containers are not yet running.
+
+#### Monitoring Feature Flags & Variables
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `monitoring_enabled` | `false` | Deploy Prometheus + Grafana + all exporter containers |
+| `prometheus_port` | `9090` | Host port for Prometheus UI |
+| `grafana_port` | `3000` | Host port for Grafana UI |
+| `grafana_admin_password` | `admin` | Grafana admin password (sensitive — use `TF_VAR_grafana_admin_password`) |
+| `dashboard_enabled` | `false` | Deploy nginx status dashboard container |
+| `dashboard_port` | `8080` | Host port for the nginx dashboard |
+
+#### Monitoring Verification
+
+```bash
+# Full 7-section health report
+bash monitoring-health-check.sh
+
+# Focused checks
+bash monitoring-health-check.sh --targets    # Prometheus scrape target status
+bash monitoring-health-check.sh --metrics    # pg_up per node (UP/DOWN)
+bash monitoring-health-check.sh --dashboard  # nginx proxy endpoint HTTP codes
+
+# Access UIs
+open http://localhost:5005    # nginx cluster status dashboard
+open http://localhost:3000    # Grafana (admin / admin)
+open http://localhost:9091    # Prometheus UI
+```
+
+### 8. Network Topology
 
 #### Docker Network
 
@@ -432,7 +551,12 @@ graph TD
         DBHUB["dbhub<br/>172.20.0.8"]
         VAULT["vault<br/>172.20.0.9"]
         VAGENT["vault-agent<br/>172.20.0.10"]
-        DD["datadog-agent<br/>172.20.0.11 (optional)"]
+        DD["datadog-agent<br/>(optional)"]
+        DASH["pg-dashboard<br/>(optional)"]
+        PROM["prometheus<br/>(optional)"]
+        GRAF["grafana<br/>(optional)"]
+        PGE["postgres-exporter-1/2/3<br/>(optional)"]
+        PGBE["pgbouncer-exporter-1/2<br/>(optional)"]
     end
 
     HOST["Host Machine"]
@@ -448,6 +572,9 @@ graph TD
     HOST -->|":8200"| VAULT
     HOST -->|":8125 UDP"| DD
     HOST -->|":9090"| DBHUB
+    HOST -->|":5005"| DASH
+    HOST -->|":9091"| PROM
+    HOST -->|":3000"| GRAF
     VAGENT -->|"AppRole :8200"| VAULT
 ```
 
@@ -581,6 +708,11 @@ sequenceDiagram
 | vault-agent | ~50 MB |
 | Datadog Agent | ~512 MB (configurable via `datadog_memory_mb`) |
 | DBHub | ~500 MB |
+| postgres-exporter × 3 | ~64 MB each |
+| pgbouncer-exporter × 2 | ~64 MB each |
+| Prometheus | ~256 MB |
+| Grafana | ~256 MB |
+| pg-dashboard (nginx) | ~20 MB |
 
 ## Failure Modes & Recovery
 

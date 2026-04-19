@@ -11,6 +11,8 @@ Production-ready **PostgreSQL 18 High Availability cluster** managed entirely wi
 - Vault secrets management (optional, toggle via `vault_enabled`)
 - pgvector extension for AI/ML embeddings (1536-dim IVFFLAT)
 - Datadog Agent for metrics, logs, and integration checks (optional, toggle via `datadog_enabled`)
+- Prometheus + Grafana + exporter sidecars for local metrics dashboards (optional, toggle via `monitoring_enabled`)
+- nginx status dashboard for live cluster overview (optional, toggle via `dashboard_enabled`)
 
 ## Key Commands
 
@@ -76,6 +78,23 @@ docker exec datadog-agent agent check http_check
 docker logs datadog-agent -f
 ```
 
+### Local Monitoring Stack (Prometheus + Grafana)
+
+```bash
+# Full 7-section health report
+bash monitoring-health-check.sh
+
+# Focused checks
+bash monitoring-health-check.sh --targets    # Prometheus scrape targets
+bash monitoring-health-check.sh --metrics    # pg_up per node
+bash monitoring-health-check.sh --dashboard  # nginx proxy endpoints
+
+# Access UIs
+open http://localhost:5005   # nginx status dashboard
+open http://localhost:3000   # Grafana (admin / admin)
+open http://localhost:9091   # Prometheus
+```
+
 ## Architecture
 
 ### Terraform Files
@@ -84,6 +103,8 @@ docker logs datadog-agent -f
 - **main-vault-agent.tf** — Vault Agent sidecar container, `vault-agent-secrets` volume, permission fix
 - **main-liquibase.tf** — Liquibase one-shot container (mounts changelog, waits for primary)
 - **main-datadog.tf** — Datadog Agent container, `datadog-data` volume, rendered integration configs
+- **main-dashboard.tf** — nginx `pg-dashboard` container (port 5005); bind-mounts `index.html` + rendered `nginx.conf`
+- **main-monitoring.tf** — Prometheus, Grafana, `postgres-exporter-{1,2,3}`, `pgbouncer-exporter-{1,2}` containers; Prometheus config rendered via `local_file`
 - **variables-ha.tf** — All configuration knobs (passwords, pool sizes, memory limits, feature flags)
 - **outputs-ha.tf** — Connection strings, endpoints, generated credentials
 
@@ -117,6 +138,14 @@ graph LR
         DD["Datadog Agent\n:8125-udp DogStatsD"]
     end
 
+    subgraph MON["Local Monitoring — optional (monitoring_enabled + dashboard_enabled)"]
+        DASH["pg-dashboard\nnginx :5005"]
+        PROM["Prometheus :9091"]
+        GRAF["Grafana :3000"]
+        PGE["postgres-exporter × 3"]
+        PGBE["pgbouncer-exporter × 2"]
+    end
+
     APP --> PGB1 & PGB2
     PGB1 & PGB2 -->|transaction pooling| PGHA
     PG1 -->|WAL| PG2 & PG3
@@ -130,6 +159,11 @@ graph LR
     DD -->|postgres check| PGHA
     DD -->|pgbouncer check| PGB1 & PGB2
     DD -->|http_check| ETCD & VAULT
+    PGE -->|connect| PGHA
+    PGBE -->|admin console| PGB1 & PGB2
+    PROM -->|scrape| PGE & PGBE
+    GRAF -->|PromQL| PROM
+    DASH -. "proxy /api/*" .-> PGHA & ETCD & VAULT
 ```
 
 All containers share `pg-ha-network` (Docker bridge).
@@ -146,6 +180,7 @@ All containers share `pg-ha-network` (Docker bridge).
 | `vault-secrets.sh` | Library: `fetch_secret_from_vault()` / `create_secret_in_vault()` |
 | `pgbouncer-health-check.sh` | `nc -z` connectivity checks for all nodes |
 | `datadog-health-check.sh` | Verifies Datadog Agent, checks integration status, Patroni/etcd/Vault reachability |
+| `monitoring-health-check.sh` | 7-section Prometheus + Grafana + nginx health check; flags `--targets`, `--metrics`, `--dashboard` |
 
 ### Liquibase Changelog Structure
 ```
@@ -169,7 +204,7 @@ All changesets have rollback blocks — use `rollback-count N` to revert.
 
 ## Important Patterns
 
-**Feature flags in variables-ha.tf**: `liquibase_enabled`, `vault_enabled`, `pgbouncer_enabled`, `pgbouncer_replicas`, `datadog_enabled` — toggle features without touching resource definitions.
+**Feature flags in variables-ha.tf**: `liquibase_enabled`, `vault_enabled`, `pgbouncer_enabled`, `pgbouncer_replicas`, `datadog_enabled`, `monitoring_enabled`, `dashboard_enabled` — toggle features without touching resource definitions.
 
 **Secrets flow**: Vault is optional. When disabled, passwords come from Terraform-generated values passed as environment variables. When enabled, containers call the Vault HTTP API at startup to fetch/rotate credentials.
 
@@ -184,3 +219,9 @@ All changesets have rollback blocks — use `rollback-count N` to revert.
 **pgvector**: Items table has a `embedding vector(1536)` column with an IVFFLAT index (`lists=100`). Suitable for cosine similarity search with OpenAI-compatible embeddings.
 
 **Datadog integration config**: `main-datadog.tf` renders three YAML files into `datadog/rendered/` (gitignored — contain plaintext passwords) at `terraform apply` time using `local_file` + `templatefile()`. Templates live in `datadog/conf.d/*.yaml.tpl`. The rendered files are bind-mounted into the Datadog Agent container at the paths expected by each integration (`/etc/datadog-agent/conf.d/<check>.d/conf.yaml`). `datadog_api_key` is sensitive — always pass via `TF_VAR_datadog_api_key`, never commit to tfvars.
+
+**Prometheus config rendering**: `main-monitoring.tf` renders `monitoring/prometheus/prometheus.yml.tpl` into `monitoring/rendered/prometheus.yml` (gitignored) using Terraform `templatefile()` with `pgbouncer_enabled` and `pgbouncer_replicas` as inputs — this generates the dynamic pgbouncer target list. The rendered file is bind-mounted read-only into the Prometheus container.
+
+**nginx dashboard template escaping**: `dashboard/nginx.conf.tpl` uses `resolver 127.0.0.11` and `set $var <host>:<port>` for lazy DNS resolution (so nginx starts even when backend containers are not yet up). Terraform only escapes `${...}` interpolations; plain `$var` passes through unchanged to nginx.
+
+**Grafana provisioning**: Dashboards and datasource are auto-provisioned via bind-mounted files in `monitoring/grafana/provisioning/` (no manual Grafana UI setup needed). Dashboard JSON uses `byRegexp` matchers (not `byNamePattern`, which was removed in Grafana 11). Checkpoint panel queries use `rate(...) or rate(...)` PromQL for PG ≤16 / PG 17+ cross-version compatibility.

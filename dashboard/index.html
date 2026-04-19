@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PG-HA Cluster Dashboard</title>
+  <style>
+    :root {
+      --bg:       #1a1a2e;
+      --surface:  #16213e;
+      --surface2: #0f3460;
+      --primary:  #7c3aed;
+      --success:  #10b981;
+      --warning:  #f59e0b;
+      --danger:   #ef4444;
+      --info:     #3b82f6;
+      --text:     #e2e8f0;
+      --muted:    #94a3b8;
+      --border:   #2d3748;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────────────── */
+    .header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .logo {
+      width: 32px; height: 32px;
+      background: var(--primary);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+    .header h1 { font-size: 17px; font-weight: 600; }
+    .header-right { display: flex; align-items: center; gap: 14px; }
+    .last-updated { font-size: 12px; color: var(--muted); }
+    .countdown { font-size: 12px; color: var(--muted); }
+    .refresh-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.15s;
+    }
+    .refresh-btn:hover { background: var(--primary); border-color: var(--primary); }
+
+    /* ── Main ────────────────────────────────────────────────────────────────── */
+    .main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+    .section { margin-bottom: 32px; }
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    /* ── Summary bar ─────────────────────────────────────────────────────────── */
+    .cluster-summary {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 40px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .summary-item { display: flex; flex-direction: column; gap: 3px; }
+    .summary-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+    .summary-value { font-size: 22px; font-weight: 700; }
+    .summary-value.green { color: var(--success); }
+    .summary-value.red   { color: var(--danger); }
+    .summary-value.blue  { color: var(--info); }
+    .summary-value.warn  { color: var(--warning); }
+
+    /* ── Cards ───────────────────────────────────────────────────────────────── */
+    .grid-3    { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .card.healthy   { border-left-color: var(--success); }
+    .card.unhealthy { border-left-color: var(--danger); }
+    .card.warning   { border-left-color: var(--warning); }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .card-title { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+
+    .badge {
+      font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 2px 7px; border-radius: 4px;
+    }
+    .badge-primary        { background: rgba(16,185,129,.18); color: #10b981; }
+    .badge-replica        { background: rgba(59,130,246,.18); color: #60a5fa; }
+    .badge-standby-leader { background: rgba(245,158,11,.18); color: #fbbf24; }
+    .badge-unknown        { background: rgba(148,163,184,.18); color: #94a3b8; }
+
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0;
+    }
+    .dot-green  { background: var(--success); box-shadow: 0 0 5px var(--success); }
+    .dot-red    { background: var(--danger);  box-shadow: 0 0 5px var(--danger); }
+    .dot-yellow { background: var(--warning); box-shadow: 0 0 5px var(--warning); }
+    .dot-gray   { background: var(--muted); }
+
+    .metric-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 4px 0; font-size: 13px; border-top: 1px solid rgba(45,55,72,.5);
+    }
+    .metric-row:first-of-type { border-top: none; }
+    .metric-label { color: var(--muted); }
+    .metric-value { font-family: 'SF Mono','Consolas',monospace; font-weight: 500; }
+    .metric-value.good { color: var(--success); }
+    .metric-value.bad  { color: var(--danger); }
+    .metric-value.warn { color: var(--warning); }
+
+    /* ── Connection strings ──────────────────────────────────────────────────── */
+    .conn-list { display: flex; flex-direction: column; gap: 8px; }
+    .conn-item {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; padding: 10px 14px; font-size: 13px;
+    }
+    .conn-label { color: var(--muted); min-width: 160px; flex-shrink: 0; }
+    .conn-string { font-family: 'SF Mono','Consolas',monospace; flex: 1; color: var(--text); }
+    .copy-btn {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--muted); padding: 3px 8px; border-radius: 4px;
+      cursor: pointer; font-size: 11px; transition: all 0.15s; flex-shrink: 0;
+    }
+    .copy-btn:hover { border-color: var(--primary); color: var(--text); }
+    .copy-btn.copied { border-color: var(--success); color: var(--success); }
+
+    /* ── Utilities ───────────────────────────────────────────────────────────── */
+    .error-msg { color: var(--danger); font-size: 13px; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.35; } }
+    .pulsing { animation: pulse 1.4s ease-in-out infinite; }
+
+    @media (max-width: 768px) {
+      .grid-3 { grid-template-columns: 1fr; }
+      .main { padding: 16px; }
+      .cluster-summary { gap: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="logo">🐘</div>
+    <h1>PG-HA Cluster Dashboard</h1>
+  </div>
+  <div class="header-right">
+    <span class="last-updated" id="lastUpdated">Loading…</span>
+    <span class="countdown" id="countdown"></span>
+    <button class="refresh-btn" onclick="doRefresh()">↻ Refresh</button>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- Patroni Cluster -->
+  <div class="section">
+    <div class="section-title">Patroni Cluster</div>
+
+    <div class="cluster-summary">
+      <div class="summary-item">
+        <span class="summary-label">Primary</span>
+        <span class="summary-value pulsing" id="summaryPrimary">—</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Members</span>
+        <span class="summary-value blue" id="summaryMembers">—</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Timeline</span>
+        <span class="summary-value" id="summaryTimeline">—</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Cluster Mode</span>
+        <span class="summary-value" id="summaryMode">—</span>
+      </div>
+    </div>
+
+    <div class="grid-3" id="nodeCards">
+      <div class="card"><div class="metric-label pulsing">Loading nodes…</div></div>
+    </div>
+  </div>
+
+  <!-- Infrastructure Services -->
+  <div class="section">
+    <div class="section-title">Infrastructure Services</div>
+    <div class="grid-auto" id="serviceCards">
+      <div class="card"><div class="metric-label pulsing">Checking services…</div></div>
+    </div>
+  </div>
+
+  <!-- Connection Strings -->
+  <div class="section">
+    <div class="section-title">Connection Strings</div>
+    <div class="conn-list">
+      <div class="conn-item">
+        <span class="conn-label">PgBouncer — primary pool</span>
+        <span class="conn-string">psql -h localhost -p 6432 -U pgadmin -d postgres</span>
+        <button class="copy-btn" onclick="copyText(this,'psql -h localhost -p 6432 -U pgadmin -d postgres')">Copy</button>
+      </div>
+      <div class="conn-item">
+        <span class="conn-label">PgBouncer — replica pool</span>
+        <span class="conn-string">psql -h localhost -p 6433 -U pgadmin -d postgres</span>
+        <button class="copy-btn" onclick="copyText(this,'psql -h localhost -p 6433 -U pgadmin -d postgres')">Copy</button>
+      </div>
+      <div class="conn-item">
+        <span class="conn-label">Direct — pg-node-1</span>
+        <span class="conn-string">psql -h localhost -p 5432 -U pgadmin -d postgres</span>
+        <button class="copy-btn" onclick="copyText(this,'psql -h localhost -p 5432 -U pgadmin -d postgres')">Copy</button>
+      </div>
+      <div class="conn-item">
+        <span class="conn-label">Patroni REST API</span>
+        <span class="conn-string">curl -s http://localhost:8008/cluster | python3 -m json.tool</span>
+        <button class="copy-btn" onclick="copyText(this,'curl -s http://localhost:8008/cluster | python3 -m json.tool')">Copy</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const INTERVAL = 10;
+  let ticking;
+  let secs = INTERVAL;
+
+  // ── Fetch helpers ──────────────────────────────────────────────────────────
+
+  async function getJSON(url) {
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  }
+
+  // Like getJSON but doesn't throw on non-2xx — Vault returns 503 when sealed
+  // yet still sends a valid JSON body we need to read.
+  async function getJSONAny(url) {
+    const r = await fetch(url, { cache: 'no-store' });
+    return r.json();
+  }
+
+  async function ping(url) {
+    try { return (await fetch(url, { cache: 'no-store' })).ok; }
+    catch { return false; }
+  }
+
+  // ── Rendering helpers ──────────────────────────────────────────────────────
+
+  function roleBadge(role) {
+    if (!role) return '<span class="badge badge-unknown">unknown</span>';
+    const r = role.toLowerCase();
+    if (r === 'leader' || r === 'master')
+      return '<span class="badge badge-primary">PRIMARY</span>';
+    if (r === 'sync_standby' || r === 'standby_leader')
+      return '<span class="badge badge-standby-leader">SYNC STANDBY</span>';
+    return '<span class="badge badge-replica">REPLICA</span>';
+  }
+
+  function dot(state) {
+    if (!state) return '<span class="status-dot dot-gray"></span>';
+    const s = state.toLowerCase();
+    if (s === 'running') return '<span class="status-dot dot-green"></span>';
+    if (s === 'stopped' || s === 'crashed') return '<span class="status-dot dot-red"></span>';
+    return '<span class="status-dot dot-yellow"></span>';
+  }
+
+  function lagClass(v) {
+    if (v == null || v === 0) return 'good';
+    return v < 1048576 ? 'warn' : 'bad';
+  }
+
+  function fmtLag(v) {
+    if (v == null) return 'N/A';
+    if (v === 0)   return '0 B';
+    if (v < 1024)  return `${v} B`;
+    if (v < 1048576) return `${(v / 1024).toFixed(1)} KB`;
+    return `${(v / 1048576).toFixed(2)} MB`;
+  }
+
+  function metric(label, value, cls = '') {
+    return `<div class="metric-row">
+      <span class="metric-label">${label}</span>
+      <span class="metric-value ${cls}">${value}</span>
+    </div>`;
+  }
+
+  function svcCard(name, icon, ok, rows) {
+    const cls  = ok == null ? '' : ok ? 'healthy' : 'unhealthy';
+    const dCls = ok == null ? 'dot-gray pulsing' : ok ? 'dot-green' : 'dot-red';
+    return `<div class="card ${cls}">
+      <div class="card-header">
+        <div class="card-title"><span class="status-dot ${dCls}"></span>${icon} ${name}</div>
+      </div>
+      ${rows}
+    </div>`;
+  }
+
+  // ── Patroni ────────────────────────────────────────────────────────────────
+
+  async function refreshCluster() {
+    try {
+      const data = await getJSON('/api/cluster');
+      const members = data.members || [];
+      const leader  = members.find(m => m.role === 'leader' || m.role === 'master');
+
+      document.getElementById('summaryPrimary').className = 'summary-value ' + (leader ? 'green' : 'red');
+      document.getElementById('summaryPrimary').textContent = leader ? leader.name : 'No leader';
+      document.getElementById('summaryPrimary').classList.remove('pulsing');
+      document.getElementById('summaryMembers').textContent = members.length;
+      document.getElementById('summaryTimeline').textContent = leader?.timeline ?? '—';
+      const modeEl = document.getElementById('summaryMode');
+      modeEl.textContent = data.pause ? 'Paused' : 'Running';
+      modeEl.className   = 'summary-value ' + (data.pause ? 'warn' : 'green');
+
+      if (!members.length) {
+        document.getElementById('nodeCards').innerHTML =
+          '<div class="card unhealthy"><span class="error-msg">No members returned by Patroni</span></div>';
+        return;
+      }
+
+      document.getElementById('nodeCards').innerHTML = members.map(m => {
+        const isLeader = m.role === 'leader' || m.role === 'master';
+        const cls = m.state === 'running' ? 'healthy' : 'unhealthy';
+        return `<div class="card ${cls}">
+          <div class="card-header">
+            <div class="card-title">${dot(m.state)} ${m.name}</div>
+            ${roleBadge(m.role)}
+          </div>
+          ${metric('State',    m.state    ?? '—', m.state === 'running' ? 'good' : 'bad')}
+          ${metric('Timeline', m.timeline ?? '—')}
+          ${metric('Port',     m.port     ?? 5432)}
+          ${!isLeader ? metric('Replication Lag', fmtLag(m.lag), lagClass(m.lag)) : ''}
+        </div>`;
+      }).join('');
+
+    } catch (e) {
+      document.getElementById('summaryPrimary').textContent = 'Error';
+      document.getElementById('summaryPrimary').className = 'summary-value red';
+      document.getElementById('summaryPrimary').classList.remove('pulsing');
+      document.getElementById('nodeCards').innerHTML =
+        `<div class="card unhealthy"><span class="error-msg">Cannot reach Patroni: ${e.message}</span></div>`;
+    }
+  }
+
+  // ── Services ───────────────────────────────────────────────────────────────
+
+  async function refreshServices() {
+    // Fire all three in parallel
+    const [etcdRes, vaultRes, ddRes] = await Promise.allSettled([
+      ping('/api/etcd'),
+      getJSONAny('/api/vault').catch(() => null),
+      ping('/api/datadog'),
+    ]);
+
+    const etcdOk = etcdRes.status === 'fulfilled' && etcdRes.value;
+    const etcdCard = svcCard('etcd', '🔗', etcdOk,
+      metric('Role', 'Leader election') +
+      metric('Health', etcdOk ? 'OK' : 'Unreachable', etcdOk ? 'good' : 'bad') +
+      metric('Port', '2379')
+    );
+
+    let vaultOk = false, vaultRows = '';
+    const vj = vaultRes.status === 'fulfilled' ? vaultRes.value : null;
+    if (vj) {
+      vaultOk  = vj.initialized && !vj.sealed;
+      vaultRows =
+        metric('Initialized', vj.initialized ? 'Yes' : 'No', vj.initialized ? 'good' : 'bad') +
+        metric('Sealed',      vj.sealed       ? 'Yes' : 'No', vj.sealed       ? 'bad'  : 'good') +
+        metric('Standby',     vj.standby      ? 'Yes' : 'No');
+    } else {
+      vaultRows = metric('Status', 'Disabled / unreachable', 'bad');
+    }
+    const vaultCard = svcCard('Vault', '🔐', vaultOk, vaultRows);
+
+    const ddOk = ddRes.status === 'fulfilled' && ddRes.value;
+    const ddCard = svcCard('Datadog Agent', '📊', ddOk,
+      metric('Health endpoint', ddOk ? 'Healthy' : 'Unreachable', ddOk ? 'good' : 'bad') +
+      metric('Health port', '5555') +
+      metric('StatsD port', '8125 UDP')
+    );
+
+    document.getElementById('serviceCards').innerHTML = etcdCard + vaultCard + ddCard;
+  }
+
+  // ── Copy helper ────────────────────────────────────────────────────────────
+
+  function copyText(btn, text) {
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+    });
+  }
+
+  // ── Refresh loop ───────────────────────────────────────────────────────────
+
+  async function doRefresh() {
+    clearInterval(ticking);
+    secs = INTERVAL;
+    document.getElementById('countdown').textContent = '';
+
+    await Promise.all([refreshCluster(), refreshServices()]);
+
+    document.getElementById('lastUpdated').textContent =
+      'Updated ' + new Date().toLocaleTimeString();
+
+    ticking = setInterval(() => {
+      secs--;
+      document.getElementById('countdown').textContent = `(next in ${secs}s)`;
+      if (secs <= 0) doRefresh();
+    }, 1000);
+  }
+
+  doRefresh();
+</script>
+</body>
+</html>

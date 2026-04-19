@@ -25,6 +25,12 @@ graph TD
         DD["Datadog Agent<br/>:8125 UDP — DogStatsD"]
     end
 
+    subgraph MON["Local Monitoring (optional — monitoring_enabled + dashboard_enabled)"]
+        DASH["pg-dashboard nginx<br/>:5005 — status overview"]
+        PROM["Prometheus :9091"]
+        GRAF["Grafana :3000"]
+    end
+
     APP --> PGB
     PGB --> PG1 & PG2 & PG3
     PG1 -->|"WAL streaming"| PG2 & PG3
@@ -38,6 +44,10 @@ graph TD
     DD -->|"pgbouncer check"| PGB
     DD -->|"http_check"| ETCD & VAULT
     DD -. "docker.sock metrics+logs" .-> APP
+    PROM -. "scrape exporters" .-> PG1 & PG2 & PG3
+    PROM -. "scrape exporters" .-> PGB
+    GRAF -->|"PromQL"| PROM
+    DASH -. "proxy /api/*" .-> PG1 & ETCD & VAULT
 ```
 
 ## Inside This Cluster
@@ -92,6 +102,17 @@ graph TD
 - **Output file**: `/etc/vault/secrets/postgres.env` — mounted read-only into all pg-node and pgbouncer containers
 - **Benefit**: Containers never hold credentials in their images or environment variables; secrets rotate without container rebuilds
 
+### 📈 Local Monitoring Stack (Prometheus + Grafana)
+
+- **Toggle**: `monitoring_enabled = true` + `dashboard_enabled = true` in `ha-test.tfvars` (both on by default in `ha-test.tfvars`)
+- **nginx dashboard**: `http://localhost:5005` — single-page dark-themed cluster overview; polls Patroni, etcd, Vault, and Datadog APIs live every 10 s
+- **Prometheus**: `http://localhost:9091` — scrapes `postgres-exporter-{1,2,3}` and `pgbouncer-exporter-{1,2}`; 15-day retention
+- **Grafana**: `http://localhost:3000` (admin / admin) — two pre-provisioned dashboards:
+  - **PostgreSQL Cluster** (`pg-ha-postgres`) — node status × 3, active connections, DB size, cache hit ratio, transaction rate, locks, checkpoint rate
+  - **PgBouncer Pool** (`pg-ha-pgbouncer`) — active/waiting clients, server pool, query rate, max wait time
+- **Health check**: `bash monitoring-health-check.sh` — 7-section report; flags `--targets`, `--metrics`, `--dashboard` for focused checks
+- **Config files**: Prometheus config rendered at `terraform apply` time into `monitoring/rendered/` (gitignored)
+
 ### 📊 Datadog Agent (Observability)
 
 - **Toggle**: `datadog_enabled = true` in `ha-test.tfvars` (off by default)
@@ -125,6 +146,8 @@ graph TD
 - **Cluster API**: REST endpoints show real-time cluster status
 - **Web UI**: Visual database management at `http://localhost:9090`
 - **Logs**: All container logs available via `docker logs`
+- **nginx status dashboard** (optional): Live cluster overview at `http://localhost:5005` — enable with `dashboard_enabled = true`
+- **Prometheus + Grafana** (optional): Full metrics dashboards at `http://localhost:3000` — enable with `monitoring_enabled = true`; verify with `bash monitoring-health-check.sh`
 - **Datadog Agent** (optional): Full metrics pipeline — PostgreSQL, PgBouncer, Patroni, etcd, Vault, container-level telemetry. Enable with `datadog_enabled = true` and verify with `bash datadog-health-check.sh`
 
 ### ✅ Production Ready
@@ -264,7 +287,45 @@ for c in pg-node-1 pg-node-2 pg-node-3 pgbouncer-1 pgbouncer-2; do
 done
 ```
 
-### Scenario 5: I Want to Monitor with Datadog
+### Scenario 5: I Want to Use the Local Monitoring Stack
+
+The local monitoring stack is enabled by default (`monitoring_enabled = true`, `dashboard_enabled = true` in `ha-test.tfvars`).
+
+```bash
+# Run full 7-section health report
+bash monitoring-health-check.sh
+
+# Focused checks
+bash monitoring-health-check.sh --targets    # Prometheus scrape targets
+bash monitoring-health-check.sh --metrics    # pg_up per node
+bash monitoring-health-check.sh --dashboard  # nginx proxy endpoints
+
+# Access the UIs
+open http://localhost:5005   # nginx cluster status dashboard
+open http://localhost:3000   # Grafana (admin / admin)
+open http://localhost:9091   # Prometheus UI
+```
+
+**Expected output from `bash monitoring-health-check.sh`:**
+
+```text
+── 1. Container Status ──────  ✓ postgres-exporter-1/2/3  running
+                                ✓ prometheus               running
+                                ✓ grafana                  running
+── 2. Prometheus Targets ────  ✓ All 6 targets healthy
+── 3. PostgreSQL pg_up ──────  ✓ pg-node-1/2/3  UP
+── 4. PgBouncer Metrics ─────  ✓ 2 pool instances reporting
+── 5. Grafana Dashboards ────  ✓ PostgreSQL Cluster provisioned
+                                ✓ PgBouncer Pool provisioned
+── 6. nginx Dashboard Proxy ─  ✓ / → HTTP 200
+                                ✓ /api/cluster → HTTP 200
+── 7. Exporter Errors ───────  ✓ no errors
+── Summary ──────────────────  All checks passed.
+```
+
+To disable the stack: set `monitoring_enabled = false` and `dashboard_enabled = false` in `ha-test.tfvars` and re-apply.
+
+### Scenario 6: I Want to Monitor with Datadog
 
 **Prerequisites**: `datadog_enabled = true` in `ha-test.tfvars` and API key set.
 
@@ -345,6 +406,9 @@ PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 5433 -U pg
 | 8200 | Vault | Secrets API & UI | Optional (`vault_enabled`) |
 | 8125/udp | Datadog Agent | DogStatsD custom metrics | Optional (`datadog_enabled`) |
 | 9090 | DBHub | Web UI | Browser |
+| 5005 | pg-dashboard | nginx cluster status | Optional (`dashboard_enabled`) |
+| 9091 | Prometheus | Metrics scrape & query | Optional (`monitoring_enabled`) |
+| 3000 | Grafana | Pre-provisioned dashboards | Optional (`monitoring_enabled`) |
 
 ## File Organization
 
@@ -357,12 +421,20 @@ Your project:
 ├── main-vault-agent.tf          ← vault-agent sidecar (Terraform)
 ├── main-vault-init.tf           ← Vault bootstrap trigger (Terraform)
 ├── main-datadog.tf              ← Datadog Agent container + rendered configs
+├── main-dashboard.tf            ← nginx status dashboard container (pg-dashboard)
+├── main-monitoring.tf           ← Prometheus + Grafana + exporter containers
 ├── variables-ha.tf              ← All configuration knobs
 ├── outputs-ha.tf                ← Connection strings & endpoints
 ├── ha-test.tfvars               ← Your deployment values
 ├── datadog-health-check.sh      ← 9-section Datadog health report
+├── monitoring-health-check.sh   ← 7-section Prometheus + Grafana + nginx health report
 ├── datadog/conf.d/              ← Integration config templates (postgres, pgbouncer, http_check)
 ├── datadog/rendered/            ← Rendered configs with passwords (gitignored)
+├── dashboard/                   ← nginx status dashboard (index.html + nginx.conf.tpl)
+├── dashboard/rendered/          ← Rendered nginx.conf (gitignored)
+├── monitoring/prometheus/       ← Prometheus scrape config template (prometheus.yml.tpl)
+├── monitoring/rendered/         ← Rendered prometheus.yml (gitignored)
+└── monitoring/grafana/provisioning/  ← Grafana auto-provisioned datasource + dashboards
 ├── vault/config/vault.hcl       ← Vault server config (Raft backend)
 ├── vault-bootstrap.sh           ← Init, unseal, AppRole + KV seed
 ├── vault-secrets.sh             ← Shared Vault HTTP library (sourced by entrypoints)
@@ -487,6 +559,14 @@ bash datadog-health-check.sh
 docker exec datadog-agent agent check postgres
 docker exec datadog-agent agent check pgbouncer
 docker exec datadog-agent agent check http_check
+
+# Local monitoring — full health report
+bash monitoring-health-check.sh
+
+# Local monitoring — open UIs
+open http://localhost:5005   # nginx status dashboard
+open http://localhost:3000   # Grafana (admin / admin)
+open http://localhost:9091   # Prometheus
 ```
 
 ## Terminology
@@ -509,6 +589,11 @@ docker exec datadog-agent agent check http_check
 | **Datadog Agent** | Container-based observability agent; collects PostgreSQL, PgBouncer, Patroni, etcd, and Vault metrics |
 | **DogStatsD** | UDP protocol (port 8125) for pushing custom application metrics into Datadog |
 | **Integration check** | Datadog built-in check (postgres, pgbouncer, http_check) that scrapes metrics from a specific service |
+| **Prometheus** | Open-source metrics store that scrapes exporters on a schedule; queryable via PromQL |
+| **postgres_exporter** | Sidecar container that connects to a PostgreSQL node and exposes metrics in Prometheus format |
+| **pgbouncer_exporter** | Sidecar container that queries the PgBouncer admin console and exposes pool metrics |
+| **Grafana** | Dashboard UI that queries Prometheus via PromQL and renders pre-provisioned dashboards |
+| **pg-dashboard** | nginx container serving a single-page cluster status app; proxies Patroni/etcd/Vault APIs |
 
 ## Frequently Asked Questions
 

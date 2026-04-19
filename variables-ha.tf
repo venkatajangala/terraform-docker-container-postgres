@@ -314,3 +314,44 @@ variable "datadog_statsd_port" {
   default     = 8125
   description = "Host port mapped to Datadog DogStatsD (UDP). Applications send custom metrics here."
 }
+
+# ── Local status dashboard ───────────────────────────────────────────────────
+
+variable "dashboard_enabled" {
+  type        = bool
+  default     = false
+  description = "Enable the local nginx status dashboard (http://localhost:<dashboard_port>)."
+}
+
+variable "dashboard_port" {
+  type        = number
+  default     = 8080
+  description = "Host port for the local cluster status dashboard."
+}
+
+# ── Prometheus + Grafana monitoring stack ─────────────────────────────────────
+
+variable "monitoring_enabled" {
+  type        = bool
+  default     = false
+  description = "Enable Prometheus + Grafana + postgres_exporter + pgbouncer_exporter stack."
+}
+
+variable "prometheus_port" {
+  type        = number
+  default     = 9090
+  description = "Host port for Prometheus UI (http://localhost:<prometheus_port>)."
+}
+
+variable "grafana_port" {
+  type        = number
+  default     = 3000
+  description = "Host port for Grafana UI (http://localhost:<grafana_port>)."
+}
+
+variable "grafana_admin_password" {
+  type        = string
+  default     = "admin"
+  sensitive   = true
+  description = "Grafana admin password. Override via TF_VAR_grafana_admin_password."
+}

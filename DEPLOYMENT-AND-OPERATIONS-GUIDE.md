@@ -45,6 +45,9 @@ etcd peer:             2380 (localhost)
 Vault API:             8200 (localhost)
 DBHub (Bytebase):      9090 (localhost)
 Datadog DogStatsD:     8125/udp (localhost, when datadog_enabled = true)
+nginx Dashboard:       5005    (localhost, when dashboard_enabled = true)
+Prometheus:            9091    (localhost, when monitoring_enabled = true)
+Grafana:               3000    (localhost, when monitoring_enabled = true)
 ```
 
 ---
@@ -699,6 +702,59 @@ Set up alerts for:
 - etcd member offline
 - Disk usage > 80%
 - Memory usage > 90%
+
+---
+
+## Local Monitoring Stack (Prometheus + Grafana)
+
+The local monitoring stack deploys Prometheus, Grafana, and per-node/per-pooler exporter sidecars. Enable with `monitoring_enabled = true` and `dashboard_enabled = true` in `ha-test.tfvars`.
+
+### Enable Local Monitoring
+
+```bash
+# In ha-test.tfvars (already on by default):
+monitoring_enabled = true
+prometheus_port    = 9091
+grafana_port       = 3000
+dashboard_enabled  = true
+dashboard_port     = 5005
+
+# Re-apply if you changed the values
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+
+# Verify with the health check script
+bash monitoring-health-check.sh
+```
+
+### Access Points
+
+| Service | URL | Credentials |
+| ------- | --- | ----------- |
+| nginx status dashboard | `http://localhost:5005` | none |
+| Grafana | `http://localhost:3000` | admin / admin |
+| Prometheus UI | `http://localhost:9091` | none |
+| Prometheus targets | `http://localhost:9091/targets` | none |
+
+### Health Check Script
+
+```bash
+# Full 7-section report
+bash monitoring-health-check.sh
+
+# Focused checks
+bash monitoring-health-check.sh --targets    # Prometheus scrape target status
+bash monitoring-health-check.sh --metrics    # pg_up per node (UP/DOWN)
+bash monitoring-health-check.sh --dashboard  # nginx proxy endpoint HTTP codes
+```
+
+### Grafana Dashboards
+
+Both dashboards are provisioned automatically at startup — no manual Grafana setup required.
+
+| Dashboard | UID | Key Panels |
+| --------- | --- | ---------- |
+| PostgreSQL Cluster | `pg-ha-postgres` | Node status × 3, connections, transaction rate, cache hit ratio, locks, checkpoint rate |
+| PgBouncer Pool | `pg-ha-pgbouncer` | Active/waiting clients, server pool, query rate, max wait time |
 
 ---
 

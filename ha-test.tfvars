@@ -45,3 +45,13 @@ datadog_api_key     = ""           // Leave empty and set via TF_VAR_datadog_api
 datadog_site        = "datadoghq.com"  // Change to "datadoghq.eu" for EU region
 datadog_memory_mb   = 512
 datadog_statsd_port = 8125         // Host UDP port for DogStatsD custom metrics
+
+// Local Status Dashboard
+dashboard_enabled = true
+dashboard_port    = 5005           // http://localhost:5005
+
+// Prometheus + Grafana Monitoring Stack
+monitoring_enabled     = true
+prometheus_port        = 9091      // http://localhost:9091
+grafana_port           = 3000      // http://localhost:3000  (admin / admin)
+// grafana_admin_password = "admin" // override via TF_VAR_grafana_admin_password

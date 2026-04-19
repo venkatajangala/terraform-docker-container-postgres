@@ -15,12 +15,21 @@ Start here if you're new to this project:
 - **[Operations & Maintenance](guides/02-OPERATIONS.md)** — Day-to-day cluster operations
 - **[Troubleshooting](guides/03-TROUBLESHOOTING.md)** — Common issues and solutions
 
-## 📊 Monitoring & Observability (Datadog)
+## 📊 Monitoring & Observability
 
-- **Datadog Quick Start** — Enable with `datadog_enabled = true` and run `bash datadog-health-check.sh`
-- **Health Check Script** — `bash datadog-health-check.sh` covers 9 sections: container, connectivity, integration checks, Patroni, PostgreSQL, PgBouncer, etcd, Vault, agent errors
+### Datadog Agent (optional — `datadog_enabled`)
+
+- **Quick Start** — Enable with `datadog_enabled = true` and run `bash datadog-health-check.sh`
+- **Health Check Script** — 9 sections: container, connectivity, integration checks, Patroni, PostgreSQL, PgBouncer, etcd, Vault, agent errors
 - **Operations** — See [Operations Guide](guides/02-OPERATIONS.md#datadog-observability-monitoring) for daily monitoring tasks
 - **Troubleshooting** — See [Troubleshooting Guide](guides/03-TROUBLESHOOTING.md#datadog-observability-issues) for agent failures and integration errors
+
+### Local Monitoring Stack (optional — `monitoring_enabled` + `dashboard_enabled`)
+
+- **nginx status dashboard** — `http://localhost:5005` — live cluster overview (Patroni, etcd, Vault, Datadog)
+- **Prometheus** — `http://localhost:9091` — scrapes all postgres_exporter and pgbouncer_exporter sidecars
+- **Grafana** — `http://localhost:3000` (admin / admin) — two pre-provisioned dashboards: *PostgreSQL Cluster* + *PgBouncer Pool*
+- **Health Check Script** — `bash monitoring-health-check.sh` — 7 sections; flags `--targets`, `--metrics`, `--dashboard`
 
 ## 🔐 Secrets Management (Vault)
 
@@ -86,8 +95,8 @@ docs/
 ├── README.md                          ← You are here
 │
 ├── getting-started/
-│   ├── 01-QUICK-START.md             # 5-minute deployment (Datadog opt-in step included)
-│   ├── 02-NEW-USER-GUIDE.md          # Comprehensive introduction + Datadog overview
+│   ├── 01-QUICK-START.md             # 5-minute deployment (Steps 5–6: Datadog + local monitoring)
+│   ├── 02-NEW-USER-GUIDE.md          # Comprehensive introduction + monitoring overview
 │   └── VAULT-QuickStart.md           # Vault bootstrap & AppRole quick start
 │
 ├── guides/
@@ -102,7 +111,7 @@ docs/
 │   └── TESTING.md                    # Test procedures & scenarios
 │
 ├── architecture/
-│   └── ARCHITECTURE.md               # Full system architecture (Datadog component section)
+│   └── ARCHITECTURE.md               # Full system architecture (Datadog + local monitoring sections)
 │
 ├── VAULT-INTEGRATION.md              # Vault architecture & implementation
 └── VAULT-AGENT-SIDECAR.md            # Vault Agent sidecar pattern
@@ -136,6 +145,10 @@ bash datadog-health-check.sh
 docker exec datadog-agent agent check postgres
 docker exec datadog-agent agent check pgbouncer
 docker exec datadog-agent agent check http_check
+
+# Local monitoring health check (requires monitoring_enabled = true)
+bash monitoring-health-check.sh
+# Open UIs: http://localhost:5005  http://localhost:3000  http://localhost:9091
 ```
 
 ## 📈 Infrastructure Status
@@ -148,6 +161,8 @@ docker exec datadog-agent agent check http_check
 - ✅ Vault secrets management (optional — `vault_enabled`)
 - ✅ pgvector support (1536-dim IVFFLAT)
 - ✅ Datadog Agent observability (optional — `datadog_enabled`)
+- ✅ Local monitoring stack: Prometheus + Grafana + exporters (optional — `monitoring_enabled`)
+- ✅ nginx cluster status dashboard (optional — `dashboard_enabled`)
 
 ---
 
