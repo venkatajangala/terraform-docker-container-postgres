@@ -325,7 +325,7 @@ variable "dashboard_enabled" {
 
 variable "dashboard_port" {
   type        = number
-  default     = 8080
+  default     = 5005
   description = "Host port for the local cluster status dashboard."
 }
 
@@ -339,7 +339,7 @@ variable "monitoring_enabled" {
 
 variable "prometheus_port" {
   type        = number
-  default     = 9090
+  default     = 9091
   description = "Host port for Prometheus UI (http://localhost:<prometheus_port>)."
 }
 

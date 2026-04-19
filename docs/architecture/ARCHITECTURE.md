@@ -512,11 +512,11 @@ Docker DNS (`resolver 127.0.0.11`) with `set $var` lazy resolution ensures the p
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
 | `monitoring_enabled` | `false` | Deploy Prometheus + Grafana + all exporter containers |
-| `prometheus_port` | `9090` | Host port for Prometheus UI |
+| `prometheus_port` | `9091` | Host port for Prometheus UI |
 | `grafana_port` | `3000` | Host port for Grafana UI |
 | `grafana_admin_password` | `admin` | Grafana admin password (sensitive — use `TF_VAR_grafana_admin_password`) |
 | `dashboard_enabled` | `false` | Deploy nginx status dashboard container |
-| `dashboard_port` | `8080` | Host port for the nginx dashboard |
+| `dashboard_port` | `5005` | Host port for the nginx dashboard |
 
 #### Monitoring Verification
 
