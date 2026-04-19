@@ -82,63 +82,69 @@ if command -v verify_vault_connection >/dev/null 2>&1; then
   fi
 fi
 
-# Health-check DB: use the postgres_liquibase session pool (routes to pg-node-1 only)
-# This ensures pg_is_in_recovery() checks the designated primary, not a round-robin replica
-DB_HEALTH_NAME="${DB_NAME}"
-
 LIQUIBASE_DRIVER="org.postgresql.Driver"
-LIQUIBASE_URL="jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}"
 LIQUIBASE_USERNAME="${DB_USER}"
 LIQUIBASE_PASSWORD="${DB_PASSWORD}"
 LIQUIBASE_CHANGELOG_DIR="/liquibase/changelog"
 LIQUIBASE_CHANGELOG_FILE="db.changelog-master.yml"
 
+# Patroni API port used by all nodes inside the Docker network
+PATRONI_PORT="${PATRONI_PORT:-8008}"
+# Space-separated list of all cluster node names
+PATRONI_NODES="${PATRONI_NODES:-pg-node-1 pg-node-2 pg-node-3}"
+
 # ============================================================================
-# Wait for PostgreSQL to be ready
+# discover_primary — query each node's Patroni REST API to find the leader.
+# Sets PG_PRIMARY_HOST (node name) and PG_PRIMARY_PORT (5432).
+# Retries for up to MAX_RETRIES * RETRY_INTERVAL seconds.
 # ============================================================================
 
-wait_for_postgres() {
-  log_info "Waiting for PgBouncer at ${DB_HOST}:${DB_PORT}..."
+discover_primary() {
+  log_info "Discovering Patroni primary via REST API (nodes: ${PATRONI_NODES})..."
 
   local attempt=1
-  while [ $attempt -le $MAX_RETRIES ]; do
-    if pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_HEALTH_NAME" &>/dev/null; then
-      log_info "PgBouncer is ready!"
-      return 0
-    fi
+  while [ $attempt -le "$MAX_RETRIES" ]; do
+    for node in $PATRONI_NODES; do
+      local http_code
+      http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+        "http://${node}:${PATRONI_PORT}/leader" 2>/dev/null || echo "000")
+      if [ "$http_code" = "200" ]; then
+        log_info "Primary discovered: ${node} (Patroni /leader → HTTP 200)"
+        PG_PRIMARY_HOST="$node"
+        PG_PRIMARY_PORT=5432
+        return 0
+      fi
+    done
 
-    log_warn "Attempt $attempt/$MAX_RETRIES: PgBouncer not ready, retrying in ${RETRY_INTERVAL}s..."
+    log_warn "Attempt ${attempt}/${MAX_RETRIES}: No primary found yet, retrying in ${RETRY_INTERVAL}s..."
     sleep "$RETRY_INTERVAL"
     ((attempt++))
   done
 
-  log_error "PgBouncer did not become ready after $((MAX_RETRIES * RETRY_INTERVAL)) seconds"
+  log_error "Could not discover a Patroni primary after $((MAX_RETRIES * RETRY_INTERVAL)) seconds"
   return 1
 }
 
 # ============================================================================
-# Wait for Patroni primary (via PgBouncer session pool)
+# Wait for the discovered primary's PostgreSQL port to accept connections
 # ============================================================================
 
-wait_for_patroni_primary() {
-  log_info "Waiting for PostgreSQL primary to be available via PgBouncer..."
+wait_for_postgres() {
+  log_info "Waiting for PostgreSQL on ${PG_PRIMARY_HOST}:${PG_PRIMARY_PORT}..."
 
   local attempt=1
-  while [ $attempt -le $MAX_RETRIES ]; do
-    # PgBouncer routes to primary; pg_is_in_recovery() must return 'f'
-    if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" \
-        -U "$DB_USER" -d "$DB_HEALTH_NAME" \
-        -c "SELECT pg_is_in_recovery();" 2>/dev/null | grep -q " f"; then
-      log_info "PostgreSQL primary is ready and accepting writes"
+  while [ $attempt -le "$MAX_RETRIES" ]; do
+    if pg_isready -h "$PG_PRIMARY_HOST" -p "$PG_PRIMARY_PORT" -U "$DB_USER" -d postgres &>/dev/null; then
+      log_info "PostgreSQL primary is accepting connections"
       return 0
     fi
 
-    log_warn "Attempt $attempt/$MAX_RETRIES: Primary not ready via PgBouncer, retrying in ${RETRY_INTERVAL}s..."
+    log_warn "Attempt ${attempt}/${MAX_RETRIES}: PostgreSQL not ready yet, retrying in ${RETRY_INTERVAL}s..."
     sleep "$RETRY_INTERVAL"
     ((attempt++))
   done
 
-  log_error "PostgreSQL primary did not become available after $((MAX_RETRIES * RETRY_INTERVAL)) seconds"
+  log_error "PostgreSQL primary did not accept connections after $((MAX_RETRIES * RETRY_INTERVAL)) seconds"
   return 1
 }
 
@@ -205,12 +211,19 @@ run_liquibase() {
 
 main() {
   log_info "Liquibase Migration Container Started"
-  
+
+  # Step 1 — find which node is currently the Patroni leader
+  discover_primary || exit 1
+
+  # Step 2 — wait for that node's PostgreSQL port to be ready
   wait_for_postgres || exit 1
-  wait_for_patroni_primary || exit 1
+
+  # Step 3 — build the JDBC URL pointing directly at the primary (not PgBouncer)
+  LIQUIBASE_URL="jdbc:postgresql://${PG_PRIMARY_HOST}:${PG_PRIMARY_PORT}/postgres"
+
   verify_changelog || exit 1
   run_liquibase || exit 1
-  
+
   log_info "All migration tasks completed successfully"
   
   # Keep container running if needed

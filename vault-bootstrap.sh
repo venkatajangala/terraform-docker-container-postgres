@@ -108,6 +108,27 @@ init_and_unseal() {
 }
 
 # ---------------------------------------------------------------------------
+# wait_for_active — blocks until Vault is active (HTTP 200 on /sys/health).
+# Must be called after init_and_unseal so AppRole APIs are reachable.
+# ---------------------------------------------------------------------------
+wait_for_active() {
+  local attempts=0 max=30
+  echo "Waiting for Vault to reach active state (HTTP 200)..." >&2
+  while [ $attempts -lt $max ]; do
+    local status
+    status=$(curl -s -o /dev/null -w "%{http_code}" "${VAULT_ADDR}/v1/sys/health" || true)
+    if [ "$status" = "200" ]; then
+      echo "Vault is active (HTTP 200)" >&2
+      return 0
+    fi
+    attempts=$((attempts + 1))
+    sleep 2
+  done
+  echo "ERROR: Vault did not reach active state after $((max * 2))s" >&2
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # _api — authenticated Vault API helper
 # Usage: _api METHOD path [json_payload]
 # Omit payload (or pass empty string) for GET requests — no -d flag is sent.
@@ -131,6 +152,7 @@ _api() {
 # ---------------------------------------------------------------------------
 wait_for_vault
 init_and_unseal
+wait_for_active
 
 # Enable KV v2 secrets engine (idempotent — ignore "already enabled" error)
 echo "Enabling KV v2 secrets engine at secret/ ..." >&2
@@ -159,9 +181,31 @@ echo "Creating AppRole role ${ROLE_NAME} ..." >&2
 _api POST "auth/approle/role/${ROLE_NAME}" \
     "{\"policies\":[\"${ROLE_NAME}\"],\"secret_id_ttl\":\"24h\"}" > /dev/null
 
-# Retrieve role_id and generate a new secret_id
-role_id=$(_api GET "auth/approle/role/${ROLE_NAME}/role-id" "" | jq -r '.data.role_id')
-secret_id=$(_api POST "auth/approle/role/${ROLE_NAME}/secret-id" "{}" | jq -r '.data.secret_id')
+# Retrieve role_id — retry up to 10 times in case Raft hasn't committed the role yet
+role_id=""
+for _try in $(seq 1 10); do
+  role_id=$(_api GET "auth/approle/role/${ROLE_NAME}/role-id" "" | jq -r '.data.role_id // empty')
+  [ -n "$role_id" ] && break
+  echo "role_id not available yet (attempt ${_try}/10), waiting 2s..." >&2
+  sleep 2
+done
+if [ -z "$role_id" ]; then
+  echo "ERROR: failed to retrieve role_id after 10 attempts — Vault AppRole setup incomplete." >&2
+  exit 1
+fi
+
+# Generate a new secret_id — same retry guard
+secret_id=""
+for _try in $(seq 1 10); do
+  secret_id=$(_api POST "auth/approle/role/${ROLE_NAME}/secret-id" "{}" | jq -r '.data.secret_id // empty')
+  [ -n "$secret_id" ] && break
+  echo "secret_id generation failed (attempt ${_try}/10), waiting 2s..." >&2
+  sleep 2
+done
+if [ -z "$secret_id" ]; then
+  echo "ERROR: failed to generate secret_id after 10 attempts." >&2
+  exit 1
+fi
 
 # Seed KV v2 secrets
 if [ -n "${PG_PASS}" ]; then
