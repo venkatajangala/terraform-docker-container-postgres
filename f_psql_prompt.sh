@@ -77,10 +77,20 @@ print(u.password or '')
 }
 
 # ── Helper: find the current Patroni primary via REST API ────────────────────
+# Polls all three Patroni ports via /cluster (returns full member list from any
+# running node, unlike /leader which only returns 200 on the leader itself).
+# Tries 8008→8009→8010 so it still works when pg-node-1 is down.
 _psql_find_leader() {
   local leader
-  leader=$(curl -sf --max-time 3 "http://localhost:8008/leader" 2>/dev/null \
-    | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])" 2>/dev/null || true)
+  for port in 8008 8009 8010; do
+    leader=$(curl -sf --max-time 3 "http://localhost:${port}/cluster" 2>/dev/null \
+      | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(next(m['name'] for m in d['members'] if m['role'] == 'leader'))
+" 2>/dev/null || true)
+    [ -n "$leader" ] && break
+  done
   echo "${leader:-pg-node-1}"
 }
 

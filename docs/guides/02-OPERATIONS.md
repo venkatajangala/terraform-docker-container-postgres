@@ -166,8 +166,8 @@ curl -s http://localhost:8008/cluster | python3 -m json.tool | grep -E '"name"|"
 **⚠️ IMPORTANT: Do this during low-traffic windows only**
 
 ```bash
-# Step 1: Record current leader
-LEADER=$(curl -s http://localhost:8008/leader | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])")
+# Step 1: Record current leader (query /cluster — works from any node regardless of role)
+LEADER=$(curl -s http://localhost:8008/cluster | python3 -c "import sys,json; d=json.load(sys.stdin); print(next(m['name'] for m in d['members'] if m['role']=='leader'))")
 echo "Current primary: $LEADER"
 
 # Step 2: Stop the primary

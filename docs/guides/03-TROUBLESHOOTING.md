@@ -437,7 +437,7 @@ kill -9 <PID>
 terraform output -json generated_passwords
 
 # Step 2: Apply the updated password in PostgreSQL on the primary node
-LEADER=$(curl -s http://localhost:8008/leader | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])")
+LEADER=$(curl -s http://localhost:8008/cluster | python3 -c "import sys,json; d=json.load(sys.stdin); print(next(m['name'] for m in d['members'] if m['role']=='leader'))")
 docker exec -it "$LEADER" psql -U postgres -d postgres -c \
   "ALTER USER pgadmin PASSWORD '<password from generated_passwords>';"
 

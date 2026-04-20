@@ -757,8 +757,8 @@ EOF
 ### 10.1 Primary Failure Simulation
 
 ```bash
-# 1. Note current primary
-CURRENT_PRIMARY=$(curl -s http://localhost:8008/leader | grep -o '"name":"[^"]*"' | cut -d'"' -f4)
+# 1. Note current primary (query /cluster — works from any node regardless of role)
+CURRENT_PRIMARY=$(curl -s http://localhost:8008/cluster | python3 -c "import sys,json; d=json.load(sys.stdin); print(next(m['name'] for m in d['members'] if m['role']=='leader'))")
 echo "Current Primary: $CURRENT_PRIMARY"
 
 # 2. Stop primary
@@ -768,8 +768,8 @@ docker stop pg-node-1
 echo "Waiting for failover..."
 sleep 60
 
-# 4. Check new primary
-NEW_PRIMARY=$(curl -s http://localhost:8008/leader | grep -o '"name":"[^"]*"' | cut -d'"' -f4)
+# 4. Check new primary (pg-node-1 is down; query pg-node-2's Patroni API on port 8009)
+NEW_PRIMARY=$(curl -s http://localhost:8009/cluster | python3 -c "import sys,json; d=json.load(sys.stdin); print(next(m['name'] for m in d['members'] if m['role']=='leader'))")
 echo "New Primary: $NEW_PRIMARY"
 
 # 5. Verify connection works
