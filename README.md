@@ -108,7 +108,7 @@ unset PGPASSWORD
 ### ✅ Local Monitoring Stack (Prometheus + Grafana + nginx dashboard)
 
 - **nginx status dashboard** — single-page dark-themed cluster overview at `http://localhost:5005`; polls Patroni, etcd, Vault, and Datadog APIs live every 10 s
-- **Prometheus** — scrapes all 3 postgres_exporter and 2 pgbouncer_exporter sidecars; 15-day retention at `http://localhost:9091`
+- **Prometheus** — scrapes all 3 postgres_exporter and 2 pgbouncer_exporter sidecars; 15-day retention at `http://localhost:9090`
 - **Grafana** — pre-provisioned dashboards at `http://localhost:3000` (admin / admin):
   - **PostgreSQL Cluster** — node status, connections, transaction rate, cache hit ratio, locks, checkpoints
   - **PgBouncer Pool** — active/waiting clients, server pool, query rate, max wait time
@@ -160,7 +160,7 @@ graph TD
 
     subgraph MON["Local Monitoring — optional (monitoring_enabled + dashboard_enabled)"]
         DASH[pg-dashboard nginx :5005]
-        PROM[Prometheus :9091]
+        PROM[Prometheus :9090]
         GRAF[Grafana :3000]
         PGE1[postgres-exporter-1] & PGE2[postgres-exporter-2] & PGE3[postgres-exporter-3]
         PGBE1[pgbouncer-exporter-1] & PGBE2[pgbouncer-exporter-2]
@@ -226,11 +226,11 @@ psql -h localhost -p 5432 -U pgadmin -d postgres
 ### Cluster Monitoring
 ```
 Patroni API:       http://localhost:8008       (Node 1)
-Web UI (DBHub):    http://localhost:9090
+Web UI (DBHub):    http://localhost:9080
 Admin Console:     psql -h localhost -p 6432 -U pgadmin -d pgbouncer
 Status Dashboard:  http://localhost:5005        (nginx — when dashboard_enabled = true)
 Grafana:           http://localhost:3000        (admin/admin — when monitoring_enabled = true)
-Prometheus:        http://localhost:9091/targets (when monitoring_enabled = true)
+Prometheus:        http://localhost:9090/targets (when monitoring_enabled = true)
 ```
 
 ## 📋 Common Commands
@@ -298,7 +298,7 @@ bash monitoring-health-check.sh --dashboard  # nginx proxy endpoints
 # Open dashboards in browser
 open http://localhost:5005          # nginx status dashboard
 open http://localhost:3000          # Grafana (admin / admin)
-open http://localhost:9091/targets  # Prometheus targets
+open http://localhost:9090/targets  # Prometheus targets
 
 # Stream exporter logs
 docker logs prometheus          -f
@@ -469,7 +469,7 @@ datadog_statsd_port = 8125
 
 # Local monitoring — Prometheus + Grafana (optional)
 monitoring_enabled  = true           # Deploys Prometheus, Grafana, and all exporters
-prometheus_port     = 9091           # http://localhost:9091
+prometheus_port     = 9090           # http://localhost:9090
 grafana_port        = 3000           # http://localhost:3000  (admin / admin)
 # grafana_admin_password = "admin"   # Override via TF_VAR_grafana_admin_password
 

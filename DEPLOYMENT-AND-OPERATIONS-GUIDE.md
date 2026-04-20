@@ -43,10 +43,10 @@ Patroni API (node-3):  8010 (localhost)
 etcd client:           2379 (localhost)
 etcd peer:             2380 (localhost)
 Vault API:             8200 (localhost)
-DBHub (Bytebase):      9090 (localhost)
+DBHub (Bytebase):      9080 (localhost)
 Datadog DogStatsD:     8125/udp (localhost, when datadog_enabled = true)
 nginx Dashboard:       5005    (localhost, when dashboard_enabled = true)
-Prometheus:            9091    (localhost, when monitoring_enabled = true)
+Prometheus:            9090    (localhost, when monitoring_enabled = true)
 Grafana:               3000    (localhost, when monitoring_enabled = true)
 ```
 
@@ -714,7 +714,7 @@ The local monitoring stack deploys Prometheus, Grafana, and per-node/per-pooler 
 ```bash
 # In ha-test.tfvars (already on by default):
 monitoring_enabled = true
-prometheus_port    = 9091
+prometheus_port    = 9090
 grafana_port       = 3000
 dashboard_enabled  = true
 dashboard_port     = 5005
@@ -732,8 +732,8 @@ bash monitoring-health-check.sh
 | ------- | --- | ----------- |
 | nginx status dashboard | `http://localhost:5005` | none |
 | Grafana | `http://localhost:3000` | admin / admin |
-| Prometheus UI | `http://localhost:9091` | none |
-| Prometheus targets | `http://localhost:9091/targets` | none |
+| Prometheus UI | `http://localhost:9090` | none |
+| Prometheus targets | `http://localhost:9090/targets` | none |
 
 ### Health Check Script
 

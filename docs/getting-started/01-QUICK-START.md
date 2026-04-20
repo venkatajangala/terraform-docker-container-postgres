@@ -51,7 +51,7 @@ sleep 150
 - vault-agent sidecar (renders secrets to containers — `vault_enabled`)
 - Datadog Agent (metrics, logs, integration checks — `datadog_enabled`)
 - nginx status dashboard (cluster overview at :5005 — `dashboard_enabled`)
-- Prometheus + Grafana + exporters (dashboards at :3000, metrics at :9091 — `monitoring_enabled`)
+- Prometheus + Grafana + exporters (dashboards at :3000, metrics at :9090 — `monitoring_enabled`)
 - DBHub web UI (optional)
 
 ### Step 3: Verify (1 minute)
@@ -151,8 +151,8 @@ bash monitoring-health-check.sh --dashboard  # nginx proxy HTTP codes
 | --- | ------- | ----------- |
 | `http://localhost:5005` | nginx status dashboard | none (anonymous) |
 | `http://localhost:3000` | Grafana dashboards | admin / admin |
-| `http://localhost:9091` | Prometheus UI | none |
-| `http://localhost:9091/targets` | Prometheus scrape targets | none |
+| `http://localhost:9090` | Prometheus UI | none |
+| `http://localhost:9090/targets` | Prometheus scrape targets | none |
 
 ## Common Next Steps
 
@@ -202,10 +202,10 @@ unset PGPASSWORD
 
 ```bash
 # Open browser
-open http://localhost:9090
+open http://localhost:9080
 
 # Or check what's available
-curl -s http://localhost:9090/api/v1/info
+curl -s http://localhost:9080/api/v1/info
 ```
 
 ## Troubleshooting
@@ -264,7 +264,7 @@ curl -s http://localhost:9090/api/v1/info
 ✅ **Local Monitoring Stack** (`monitoring_enabled = true`, `dashboard_enabled = true`)
 
 - nginx status dashboard at `http://localhost:5005` — live Patroni/etcd/Vault/Datadog overview
-- Prometheus at `http://localhost:9091` — scrapes all 3 postgres_exporter and 2 pgbouncer_exporter containers
+- Prometheus at `http://localhost:9090` — scrapes all 3 postgres_exporter and 2 pgbouncer_exporter containers
 - Grafana at `http://localhost:3000` — two pre-provisioned dashboards (PostgreSQL Cluster + PgBouncer Pool)
 - Health check: `bash monitoring-health-check.sh`
 

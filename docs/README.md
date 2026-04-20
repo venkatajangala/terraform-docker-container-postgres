@@ -27,7 +27,7 @@ Start here if you're new to this project:
 ### Local Monitoring Stack (optional — `monitoring_enabled` + `dashboard_enabled`)
 
 - **nginx status dashboard** — `http://localhost:5005` — live cluster overview (Patroni, etcd, Vault, Datadog)
-- **Prometheus** — `http://localhost:9091` — scrapes all postgres_exporter and pgbouncer_exporter sidecars
+- **Prometheus** — `http://localhost:9090` — scrapes all postgres_exporter and pgbouncer_exporter sidecars
 - **Grafana** — `http://localhost:3000` (admin / admin) — two pre-provisioned dashboards: *PostgreSQL Cluster* + *PgBouncer Pool*
 - **Health Check Script** — `bash monitoring-health-check.sh` — 7 sections; flags `--targets`, `--metrics`, `--dashboard`
 
@@ -148,7 +148,7 @@ docker exec datadog-agent agent check http_check
 
 # Local monitoring health check (requires monitoring_enabled = true)
 bash monitoring-health-check.sh
-# Open UIs: http://localhost:5005  http://localhost:3000  http://localhost:9091
+# Open UIs: http://localhost:5005  http://localhost:3000  http://localhost:9090
 ```
 
 ## 📈 Infrastructure Status

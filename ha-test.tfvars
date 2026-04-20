@@ -8,7 +8,7 @@ postgres_user         = "pgadmin"
 postgres_password     = "" // Leave empty to auto-generate, or set via env var
 postgres_db           = "postgres"
 replication_password  = "" // Leave empty to auto-generate, or set via env var
-dbhub_port            = 9090
+dbhub_port            = 9080
 etcd_port             = 2379
 etcd_peer_port        = 2380
 patroni_api_port_base = 8008
@@ -52,6 +52,6 @@ dashboard_port    = 5005           // http://localhost:5005
 
 // Prometheus + Grafana Monitoring Stack
 monitoring_enabled     = true
-prometheus_port        = 9091      // http://localhost:9091
+prometheus_port        = 9090      // http://localhost:9090
 grafana_port           = 3000      // http://localhost:3000  (admin / admin)
 // grafana_admin_password = "admin" // override via TF_VAR_grafana_admin_password

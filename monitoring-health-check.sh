@@ -11,7 +11,7 @@
 set -euo pipefail
 
 # ── Port defaults (override via env vars if you changed them in ha-test.tfvars)
-PROM_PORT="${PROMETHEUS_PORT:-9091}"
+PROM_PORT="${PROMETHEUS_PORT:-9090}"
 GRAFANA_PORT="${GRAFANA_PORT:-3000}"
 DASHBOARD_PORT="${DASHBOARD_PORT:-5005}"
 GRAFANA_PASS="${GRAFANA_ADMIN_PASSWORD:-admin}"

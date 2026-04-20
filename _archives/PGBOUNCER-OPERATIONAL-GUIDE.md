@@ -15,7 +15,7 @@
 | **Patroni API Node-2** | pg-node-2 | 8009 | Cluster management / failover |
 | **Patroni API Node-3** | pg-node-3 | 8010 | Cluster management / failover |
 | **etcd** | etcd | 2379 | Distributed state store |
-| **DBHub/Bytebase** | localhost/dbhub | 9090 | Web-based database management UI |
+| **DBHub/Bytebase** | localhost/dbhub | 9080 | Web-based database management UI |
 
 ---
 

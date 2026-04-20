@@ -92,7 +92,7 @@ bash monitoring-health-check.sh --dashboard  # nginx proxy endpoints
 # Access UIs
 open http://localhost:5005   # nginx status dashboard
 open http://localhost:3000   # Grafana (admin / admin)
-open http://localhost:9091   # Prometheus
+open http://localhost:9090   # Prometheus
 ```
 
 ## Architecture
@@ -140,7 +140,7 @@ graph LR
 
     subgraph MON["Local Monitoring — optional (monitoring_enabled + dashboard_enabled)"]
         DASH["pg-dashboard\nnginx :5005"]
-        PROM["Prometheus :9091"]
+        PROM["Prometheus :9090"]
         GRAF["Grafana :3000"]
         PGE["postgres-exporter × 3"]
         PGBE["pgbouncer-exporter × 2"]

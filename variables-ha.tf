@@ -26,7 +26,7 @@ variable "replication_password" {
 
 variable "dbhub_port" {
   type        = number
-  default     = 9090
+  default     = 9080
   description = "DBHub (Bytebase) web interface port"
 }
 
@@ -339,7 +339,7 @@ variable "monitoring_enabled" {
 
 variable "prometheus_port" {
   type        = number
-  default     = 9091
+  default     = 9090
   description = "Host port for Prometheus UI (http://localhost:<prometheus_port>)."
 }
 

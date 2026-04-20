@@ -17,7 +17,7 @@
 | Patroni | 3.3.8 | ✅ Running | 8008-8010 | Cluster orchestration |
 | etcd | v3.5.0 | ✅ Running | 2379-2380 | Distributed consensus |
 | PgBouncer | 1.15 | ✅ Running | 6432-6433 | Connection pooling |
-| DBHub/Bytebase | latest | ✅ Running | 9090 | Web UI |
+| DBHub/Bytebase | latest | ✅ Running | 9080 | Web UI |
 
 ### Cluster Topology
 
@@ -48,7 +48,7 @@
          ├─► Patroni API @ 8008-8010
          │   (Health Checks, Failover)
          │
-         └─► DBHub @ 9090
+         └─► DBHub @ 9080
              (Database Management UI)
 ```
 
@@ -83,7 +83,7 @@
 - **Status**: Operational and stable
 
 ### ✅ Observability
-- **Web UI**: DBHub (Bytebase) on port 9090
+- **Web UI**: DBHub (Bytebase) on port 9080
 - **Patroni API**: Health checks on each node (8008-8010)
 - **Logs**: Available via `docker logs` for all containers
 
@@ -216,7 +216,7 @@ Node 3: http://localhost:8010     (Replica 2)
 
 ### Database Management UI
 ```
-DBHub/Bytebase: http://localhost:9090
+DBHub/Bytebase: http://localhost:9080
 ```
 
 ---

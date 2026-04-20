@@ -27,7 +27,7 @@ graph TD
 
     subgraph MON["Local Monitoring (optional — monitoring_enabled + dashboard_enabled)"]
         DASH["pg-dashboard nginx<br/>:5005 — status overview"]
-        PROM["Prometheus :9091"]
+        PROM["Prometheus :9090"]
         GRAF["Grafana :3000"]
     end
 
@@ -83,7 +83,7 @@ graph TD
 ### 🌐 DBHub (Bytebase)
 
 - **Role**: Web-based database management UI
-- **Access**: http://localhost:9090
+- **Access**: http://localhost:9080
 - **Features**: Query execution, schema browser, migrations
 
 ### 🔐 Vault (Secrets Management)
@@ -106,7 +106,7 @@ graph TD
 
 - **Toggle**: `monitoring_enabled = true` + `dashboard_enabled = true` in `ha-test.tfvars` (both on by default in `ha-test.tfvars`)
 - **nginx dashboard**: `http://localhost:5005` — single-page dark-themed cluster overview; polls Patroni, etcd, Vault, and Datadog APIs live every 10 s
-- **Prometheus**: `http://localhost:9091` — scrapes `postgres-exporter-{1,2,3}` and `pgbouncer-exporter-{1,2}`; 15-day retention
+- **Prometheus**: `http://localhost:9090` — scrapes `postgres-exporter-{1,2,3}` and `pgbouncer-exporter-{1,2}`; 15-day retention
 - **Grafana**: `http://localhost:3000` (admin / admin) — two pre-provisioned dashboards:
   - **PostgreSQL Cluster** (`pg-ha-postgres`) — node status × 3, active connections, DB size, cache hit ratio, transaction rate, locks, checkpoint rate
   - **PgBouncer Pool** (`pg-ha-pgbouncer`) — active/waiting clients, server pool, query rate, max wait time
@@ -144,7 +144,7 @@ graph TD
 ### ✅ Observability
 
 - **Cluster API**: REST endpoints show real-time cluster status
-- **Web UI**: Visual database management at `http://localhost:9090`
+- **Web UI**: Visual database management at `http://localhost:9080`
 - **Logs**: All container logs available via `docker logs`
 - **nginx status dashboard** (optional): Live cluster overview at `http://localhost:5005` — enable with `dashboard_enabled = true`
 - **Prometheus + Grafana** (optional): Full metrics dashboards at `http://localhost:3000` — enable with `monitoring_enabled = true`; verify with `bash monitoring-health-check.sh`
@@ -303,7 +303,7 @@ bash monitoring-health-check.sh --dashboard  # nginx proxy endpoints
 # Access the UIs
 open http://localhost:5005   # nginx cluster status dashboard
 open http://localhost:3000   # Grafana (admin / admin)
-open http://localhost:9091   # Prometheus UI
+open http://localhost:9090   # Prometheus UI
 ```
 
 **Expected output from `bash monitoring-health-check.sh`:**
@@ -405,9 +405,9 @@ PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 5433 -U pg
 | 2379 | etcd | Configuration | Internal |
 | 8200 | Vault | Secrets API & UI | Optional (`vault_enabled`) |
 | 8125/udp | Datadog Agent | DogStatsD custom metrics | Optional (`datadog_enabled`) |
-| 9090 | DBHub | Web UI | Browser |
+| 9080 | DBHub | Web UI | Browser |
 | 5005 | pg-dashboard | nginx cluster status | Optional (`dashboard_enabled`) |
-| 9091 | Prometheus | Metrics scrape & query | Optional (`monitoring_enabled`) |
+| 9090 | Prometheus | Metrics scrape & query | Optional (`monitoring_enabled`) |
 | 3000 | Grafana | Pre-provisioned dashboards | Optional (`monitoring_enabled`) |
 
 ## File Organization
@@ -566,7 +566,7 @@ bash monitoring-health-check.sh
 # Local monitoring — open UIs
 open http://localhost:5005   # nginx status dashboard
 open http://localhost:3000   # Grafana (admin / admin)
-open http://localhost:9091   # Prometheus
+open http://localhost:9090   # Prometheus
 ```
 
 ## Terminology

@@ -135,7 +135,7 @@ docker exec pg-node-2 psql -U postgres -d postgres -c "SELECT schemaname, tablen
 
 ### ❓ DBHub/Bytebase Web Interface
 - **Status**: STARTING (health check in progress)
-- **Port**: 9090
+- **Port**: 9080
 - **Action**: Verify web interface accessibility
 
 ---

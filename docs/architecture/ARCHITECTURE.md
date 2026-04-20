@@ -17,7 +17,7 @@ graph TD
     end
 
     ETCD["etcd Cluster<br/>:2379 / :2380<br/>Leader election · Cluster state · Safe failover"]
-    DBHUB["DBHub / Bytebase (optional)<br/>:9090 — Web Management UI"]
+    DBHUB["DBHub / Bytebase (optional)<br/>:9080 — Web Management UI"]
 
     subgraph SECRETS["Secrets Management Layer (optional — vault_enabled)"]
         VAULT["Vault Server<br/>:8200 · Raft backend"]
@@ -31,7 +31,7 @@ graph TD
 
     subgraph MON["Local Monitoring (optional — monitoring_enabled + dashboard_enabled)"]
         DASH["pg-dashboard nginx<br/>:5005 — status overview"]
-        PROM["Prometheus<br/>:9091 — metrics store"]
+        PROM["Prometheus<br/>:9090 — metrics store"]
         GRAF["Grafana<br/>:3000 — dashboards"]
         PGE["postgres-exporter × 3<br/>:9187 — pg metrics"]
         PGBE["pgbouncer-exporter × 2<br/>:9127 — pool metrics"]
@@ -439,7 +439,7 @@ The local monitoring stack is an optional set of containers (`monitoring_enabled
 graph TD
     subgraph MON["Local Monitoring Stack"]
         DASH["pg-dashboard\nnginx :5005"]
-        PROM["Prometheus\n:9091"]
+        PROM["Prometheus\n:9090"]
         GRAF["Grafana\n:3000"]
         PGE1["postgres-exporter-1\n:9187"]
         PGE2["postgres-exporter-2\n:9187"]
@@ -477,7 +477,7 @@ graph TD
 | --------- | ----- | ---- | --------- |
 | `postgres-exporter-1/2/3` | `prometheuscommunity/postgres-exporter:latest` | Scrapes `pg_up`, connections, transactions, cache, locks, checkpoints per node | internal only |
 | `pgbouncer-exporter-1/2` | `prometheuscommunity/pgbouncer-exporter:v0.7.0` | Scrapes PgBouncer pool stats via admin console | internal only |
-| `prometheus` | `prom/prometheus:v2.54.1` | Scrapes all exporters; 15-day retention; lifecycle reload | `9091` |
+| `prometheus` | `prom/prometheus:v2.54.1` | Scrapes all exporters; 15-day retention; lifecycle reload | `9090` |
 | `grafana` | `grafana/grafana:11.3.0` | Pre-provisioned dashboards; anonymous read-only access | `3000` |
 | `pg-dashboard` | `nginx:alpine` | Reverse proxy + single-page cluster status HTML | `5005` |
 
@@ -512,7 +512,7 @@ Docker DNS (`resolver 127.0.0.11`) with `set $var` lazy resolution ensures the p
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
 | `monitoring_enabled` | `false` | Deploy Prometheus + Grafana + all exporter containers |
-| `prometheus_port` | `9091` | Host port for Prometheus UI |
+| `prometheus_port` | `9090` | Host port for Prometheus UI |
 | `grafana_port` | `3000` | Host port for Grafana UI |
 | `grafana_admin_password` | `admin` | Grafana admin password (sensitive — use `TF_VAR_grafana_admin_password`) |
 | `dashboard_enabled` | `false` | Deploy nginx status dashboard container |
@@ -532,7 +532,7 @@ bash monitoring-health-check.sh --dashboard  # nginx proxy endpoint HTTP codes
 # Access UIs
 open http://localhost:5005    # nginx cluster status dashboard
 open http://localhost:3000    # Grafana (admin / admin)
-open http://localhost:9091    # Prometheus UI
+open http://localhost:9090    # Prometheus UI
 ```
 
 ### 8. Network Topology
@@ -571,9 +571,9 @@ graph TD
     HOST -->|":2379"| ETCD
     HOST -->|":8200"| VAULT
     HOST -->|":8125 UDP"| DD
-    HOST -->|":9090"| DBHUB
+    HOST -->|":9080"| DBHUB
     HOST -->|":5005"| DASH
-    HOST -->|":9091"| PROM
+    HOST -->|":9090"| PROM
     HOST -->|":3000"| GRAF
     VAGENT -->|"AppRole :8200"| VAULT
 ```
@@ -596,7 +596,7 @@ graph LR
     HOST -->|"localhost:5432"| PG1D
     HOST -->|"localhost:8008"| PAT
     HOST -->|"localhost:8200"| VLT["Vault API / UI"]
-    HOST -->|"localhost:9090"| DBH
+    HOST -->|"localhost:9080"| DBH
     PGB1 -->|"TCP 5432"| PG1 & PG2 & PG3
     PAT <-->|"TCP 2379"| ETCD
     PG1 <-->|"TCP 5432 replication"| PG2 & PG3
@@ -738,7 +738,7 @@ graph TD
     EXT["External Clients<br/>(SCRAM-SHA-256 required)"]
 
     subgraph HOST["Host Machine — Trusted Boundary"]
-        PORTS["Exposed Host Ports<br/>:6432 / :6433 → PgBouncer (DB access)<br/>:5432–:5434 → PostgreSQL direct<br/>:8008–:8010 → Patroni API<br/>:2379 → etcd API<br/>:8200 → Vault API (restrict in production)<br/>:9090 → DBHub Web UI"]
+        PORTS["Exposed Host Ports<br/>:6432 / :6433 → PgBouncer (DB access)<br/>:5432–:5434 → PostgreSQL direct<br/>:8008–:8010 → Patroni API<br/>:2379 → etcd API<br/>:8200 → Vault API (restrict in production)<br/>:9080 → DBHub Web UI"]
 
         subgraph DOCKER["Docker Bridge Network · 172.20.0.0/16 (Isolated)"]
             PG1["pg-node-1"] & PG2["pg-node-2"] & PG3["pg-node-3"]
