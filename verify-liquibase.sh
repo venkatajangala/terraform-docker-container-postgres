@@ -43,11 +43,12 @@ else
   exit 1
 fi
 
-# Check PostgreSQL client
-if command -v psql &> /dev/null; then
-  log_success "PostgreSQL client is installed"
+# Discover a running pg-node container (any node — schema queries are read-only and replicated)
+PG_NODE=$(docker ps --format "{{.Names}}" | grep "^pg-node-" | sort | head -1)
+if [ -n "$PG_NODE" ]; then
+  log_success "PostgreSQL node for queries: $PG_NODE"
 else
-  log_info "PostgreSQL client not found - some checks will be skipped"
+  log_info "No running pg-node container found - schema checks will be skipped"
 fi
 
 # ============================================================================
@@ -93,16 +94,13 @@ fi
 
 log_header "PostgreSQL Connection Test"
 
-if command -v psql &> /dev/null; then
-  # Try to connect
-  if PGPASSWORD='' psql -h localhost -p 5432 -U pgadmin -d postgres -c "SELECT version();" &>/dev/null; then
-    log_success "Connected to PostgreSQL"
-    
-    # Get version
-    PSQL_VERSION=$(PGPASSWORD='' psql -h localhost -p 5432 -U pgadmin -d postgres -t -c "SELECT version();" 2>/dev/null | head -1)
+if [ -n "$PG_NODE" ]; then
+  if docker exec "$PG_NODE" psql -h 127.0.0.1 -U pgadmin -d postgres -c "SELECT version();" &>/dev/null; then
+    log_success "Connected to PostgreSQL via $PG_NODE"
+    PSQL_VERSION=$(docker exec "$PG_NODE" psql -h 127.0.0.1 -U pgadmin -d postgres -t -c "SELECT version();" 2>/dev/null | head -1)
     log_info "PostgreSQL: $PSQL_VERSION"
   else
-    log_info "Unable to connect to PostgreSQL with default credentials - this is expected if database requires password"
+    log_info "Unable to connect to PostgreSQL inside $PG_NODE"
   fi
 fi
 
@@ -114,47 +112,41 @@ log_header "Database Schema Verification"
 
 # Check if we can query the database for schema objects
 check_schema() {
-  local DB_PASSWORD="${1:-}"
-  local QUERY="${2:-}"
-  
-  if [ -z "$DB_PASSWORD" ]; then
-    PGPASSWORD='' psql -h localhost -p 5432 -U pgadmin -d postgres -t -c "$QUERY" 2>/dev/null
-  else
-    PGPASSWORD="$DB_PASSWORD" psql -h localhost -p 5432 -U pgadmin -d postgres -t -c "$QUERY" 2>/dev/null
-  fi
+  local QUERY="${1:-}"
+  docker exec "$PG_NODE" psql -h 127.0.0.1 -U pgadmin -d postgres -t -c "$QUERY" 2>/dev/null
 }
 
-if command -v psql &> /dev/null; then
+if [ -n "$PG_NODE" ]; then
   log_info "Checking for audit schema..."
-  if check_schema "" "SELECT schema_name FROM information_schema.schemata WHERE schema_name = 'audit';" | grep -q "audit"; then
+  if check_schema "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname = 'audit';" | grep -q "audit"; then
     log_success "Audit schema exists"
   else
     log_info "Audit schema not found (migrations may not have completed yet)"
   fi
   
   log_info "Checking for extensions..."
-  if check_schema "" "SELECT extname FROM pg_extension WHERE extname IN ('vector', 'pg_stat_statements', 'pgcrypto', 'uuid-ossp');" 2>/dev/null; then
+  if check_schema "SELECT extname FROM pg_extension WHERE extname IN ('vector', 'pg_stat_statements', 'pgcrypto', 'uuid-ossp');" 2>/dev/null; then
     log_success "Extensions installed"
   else
     log_info "Extensions not yet installed"
   fi
   
   log_info "Checking for tables..."
-  if check_schema "" "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('users', 'items', 'sessions', 'databasechangelog');" 2>/dev/null | grep -q "databasechangelog"; then
+  if check_schema "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename IN ('users', 'items', 'sessions', 'databasechangelog');" 2>/dev/null | grep -q "databasechangelog"; then
     log_success "Liquibase changelog table exists"
   else
     log_info "Liquibase changelog table not found"
   fi
 
   log_info "Checking for products table (04-add-products migration)..."
-  if check_schema "" "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'products';" 2>/dev/null | grep -q "products"; then
+  if check_schema "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'products';" 2>/dev/null | grep -q "products"; then
     log_success "Products table exists"
   else
     log_info "Products table not found (04-add-products migration may not have run)"
   fi
   
   log_info "Checking for audit log table..."
-  if check_schema "" "SELECT table_name FROM information_schema.tables WHERE table_schema = 'audit' AND table_name = 'audit_log';" 2>/dev/null | grep -q "audit_log"; then
+  if check_schema "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'audit' AND tablename = 'audit_log';" 2>/dev/null | grep -q "audit_log"; then
     log_success "Audit log table exists"
   else
     log_info "Audit log table not found"

@@ -74,11 +74,12 @@ docker inspect liquibase-migrations --format='{{.State.ExitCode}}'
 
 ### 3. Verify Migrations
 
-Connect to PostgreSQL and verify schema:
+Connect to PostgreSQL via a running cluster node and verify schema:
 
 ```bash
-# Connect via PgBouncer (recommended)
-psql -h localhost -p 6432 -U pgadmin -d postgres
+# Discover a running node and open a psql session
+PG_NODE=$(docker ps --format "{{.Names}}" | grep "^pg-node-" | sort | head -1)
+docker exec -it "$PG_NODE" psql -h 127.0.0.1 -U pgadmin -d postgres
 
 # List all tables
 \dt

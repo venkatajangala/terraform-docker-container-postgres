@@ -32,9 +32,6 @@ docker ps
 # Check Terraform is installed
 terraform --version
 
-# Check PostgreSQL client is installed (optional but recommended)
-psql --version
-
 # Check required utilities
 openssl version
 jq --version
@@ -949,7 +946,8 @@ echo "2. Liquibase Verification"
 ./verify-liquibase.sh 2>&1 | tail -10
 
 echo "3. Schema Validation"
-psql -h localhost -p 5432 -U pgadmin -d postgres << 'EOF'
+PG_NODE=$(docker ps --format "{{.Names}}" | grep "^pg-node-" | sort | head -1)
+docker exec "$PG_NODE" psql -h 127.0.0.1 -U pgadmin -d postgres << 'EOF'
 SELECT COUNT(*) as changesets FROM public.databasechangelog;
 SELECT COUNT(*) as tables FROM information_schema.tables WHERE table_schema = 'public';
 EOF

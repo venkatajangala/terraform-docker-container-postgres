@@ -23,7 +23,8 @@ docker exec liquibase-migrations \
   liquibase --changeLogFile=changelog/db.changelog-master.yml status
 
 # Query applied changesets
-psql -h localhost -p 5432 -U pgadmin -d postgres \
+PG_NODE=$(docker ps --format "{{.Names}}" | grep "^pg-node-" | sort | head -1)
+docker exec "$PG_NODE" psql -h 127.0.0.1 -U pgadmin -d postgres \
   -c "SELECT id, author, dateexecuted FROM public.databasechangelog ORDER BY orderexecuted DESC;"
 ```
 
