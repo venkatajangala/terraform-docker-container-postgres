@@ -16,12 +16,12 @@ resource "docker_network" "mcp_network" {
 }
 
 resource "docker_image" "postgres" {
-  name         = "pgvector/pgvector:0.8.1-pg18-trixie"
+  name         = "pgvector/pgvector:0.8.2-pg18-trixie"
   keep_locally = false
 }
 
 resource "docker_image" "dbhub" {
-  name = "bytebase/bytebase:latest"
+  name = "bytebase/bytebase:3.16.0"
 }
 
 resource "docker_volume" "pgdata" {

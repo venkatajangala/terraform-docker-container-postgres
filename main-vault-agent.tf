@@ -5,7 +5,7 @@
 
 resource "docker_image" "vault_agent" {
   count = var.vault_agent_enabled ? 1 : 0
-  name  = "hashicorp/vault:1.13.3"
+  name  = "hashicorp/vault:1.21.2"
 }
 
 resource "docker_container" "vault_agent" {
@@ -72,10 +72,10 @@ resource "null_resource" "vault_agent_secrets_perms" {
   }
 
   provisioner "local-exec" {
-    command = "docker run --rm -v vault-agent-secrets:/data alpine sh -c 'chown 100:1000 /data && chmod 750 /data'"
+    command = "docker run --rm --user root --entrypoint sh -v vault-agent-secrets:/data hashicorp/vault:1.21.2 -c 'chown 100:1000 /data && chmod 750 /data'"
   }
 
-  depends_on = [docker_volume.vault_agent_secrets]
+  depends_on = [docker_volume.vault_agent_secrets, docker_image.vault_agent[0]]
 }
 
 # Note: To use this sidecar in production, run one agent per host or per pod (K8s recommended).

@@ -147,7 +147,7 @@ resource "docker_network" "pg_ha_network" {
 # ============================================================================
 
 resource "docker_image" "etcd" {
-  name = "quay.io/coreos/etcd:v3.5.0"
+  name = "quay.io/coreos/etcd:v3.5.29"
 }
 
 resource "docker_volume" "etcd_data" {
@@ -344,7 +344,7 @@ resource "docker_container" "pg_node" {
 # ============================================================================
 
 resource "docker_image" "dbhub" {
-  name = "bytebase/bytebase:latest"
+  name = "bytebase/bytebase:3.16.0"
 }
 
 resource "docker_container" "dbhub" {

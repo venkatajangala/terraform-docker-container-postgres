@@ -17,22 +17,22 @@
 
 resource "docker_image" "prometheus" {
   count = var.monitoring_enabled ? 1 : 0
-  name  = "prom/prometheus:v2.54.1"
+  name  = "prom/prometheus:v2.55.1"
 }
 
 resource "docker_image" "postgres_exporter" {
   count = var.monitoring_enabled ? 1 : 0
-  name  = "prometheuscommunity/postgres-exporter:latest"
+  name  = "prometheuscommunity/postgres-exporter:v0.19.1"
 }
 
 resource "docker_image" "pgbouncer_exporter" {
   count = (var.monitoring_enabled && var.pgbouncer_enabled) ? 1 : 0
-  name  = "prometheuscommunity/pgbouncer-exporter:v0.7.0"
+  name  = "prometheuscommunity/pgbouncer-exporter:v0.9.0"
 }
 
 resource "docker_image" "grafana" {
   count = var.monitoring_enabled ? 1 : 0
-  name  = "grafana/grafana:11.3.0"
+  name  = "grafana/grafana:11.6.0"
 }
 
 # ── Persistent volumes ───────────────────────────────────────────────────────

@@ -9,7 +9,7 @@
 
 resource "docker_image" "vault" {
   count = var.vault_enabled ? 1 : 0
-  name  = "hashicorp/vault:1.17.3"
+  name  = "hashicorp/vault:1.21.2"
 }
 
 resource "docker_volume" "vault_data" {
@@ -29,10 +29,10 @@ resource "null_resource" "vault_data_perms" {
   # The vault process runs as uid=100 (vault user). The Docker volume root is
   # owned by root by default, causing "permission denied" on the Raft db file.
   provisioner "local-exec" {
-    command = "docker run --rm -v vault-data:/vault/data alpine sh -c 'chown -R 100:1000 /vault/data && chmod 750 /vault/data'"
+    command = "docker run --rm --user root --entrypoint sh -v vault-data:/vault/data hashicorp/vault:1.21.2 -c 'chown -R 100:1000 /vault/data && chmod 750 /vault/data'"
   }
 
-  depends_on = [docker_volume.vault_data]
+  depends_on = [docker_volume.vault_data, docker_image.vault[0]]
 }
 
 resource "docker_container" "vault" {

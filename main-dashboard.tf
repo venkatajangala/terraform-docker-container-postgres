@@ -10,7 +10,7 @@
 
 resource "docker_image" "dashboard" {
   count = var.dashboard_enabled ? 1 : 0
-  name  = "nginx:alpine"
+  name  = "nginx:1.30.0-alpine"
 }
 
 # Render nginx.conf — injects vault_port so the proxy rule has the right port.

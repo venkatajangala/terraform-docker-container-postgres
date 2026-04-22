@@ -1,4 +1,4 @@
-FROM alpine:3.19
+FROM alpine:3.21
 
 # Install all dependencies in single layer
 RUN apk add --no-cache \

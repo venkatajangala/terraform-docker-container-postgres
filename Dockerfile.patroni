@@ -2,7 +2,7 @@
 # PostgreSQL with Patroni, pgVector, and pgBackrest
 # Optimized for HA cluster with etcd DCS
 # ============================================================================
-FROM pgvector/pgvector:0.8.1-pg18-trixie
+FROM pgvector/pgvector:0.8.2-pg18-trixie
 
 # Install all dependencies in single layer
 RUN apt-get update -o Acquire::http::timeout=60 && \

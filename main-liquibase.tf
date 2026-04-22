@@ -44,12 +44,15 @@ resource "docker_container" "liquibase" {
     read_only = true
   }
 
-  # Mount AppRole JSON so Liquibase can login to Vault in dev
-  mounts {
-    target    = "/etc/vault/approle_pg-role.json"
-    source    = abspath("${path.module}/.vault-bootstrap/approle_pg-role.json")
-    type      = "bind"
-    read_only = true
+  # Mount AppRole JSON only when Vault is enabled (file is written by vault_init)
+  dynamic "mounts" {
+    for_each = var.vault_enabled ? [1] : []
+    content {
+      target    = "/etc/vault/approle_pg-role.json"
+      source    = abspath("${path.module}/.vault-bootstrap/approle_pg-role.json")
+      type      = "bind"
+      read_only = true
+    }
   }
 
   networks_advanced {

@@ -16,7 +16,7 @@
 
 resource "docker_image" "datadog_agent" {
   count = var.datadog_enabled ? 1 : 0
-  name  = "datadog/agent:7"
+  name  = "datadog/agent:7.78.0"
 }
 
 # ── Persistent volume for agent state (check results, forwarder queue) ───────
