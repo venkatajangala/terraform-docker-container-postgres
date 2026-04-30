@@ -33,6 +33,7 @@ RETRY_INTERVAL="${RETRY_INTERVAL:-5}"
 AIRFLOW_DB_USER="${AIRFLOW_DB_USER:-airflow_user}"
 AIRFLOW_DB_PASSWORD="${AIRFLOW_DB_PASSWORD:-}"
 AIRFLOW_DB_NAME="${AIRFLOW_DB_NAME:-airflow}"
+PGADMIN_PASSWORD="${PGADMIN_PASSWORD:-}"
 
 # ---------------------------------------------------------------------------
 # discover_primary — poll all Patroni nodes via internal Docker DNS,
@@ -60,12 +61,20 @@ discover_primary() {
 }
 
 # ---------------------------------------------------------------------------
-# build_db_url — sets AIRFLOW__DATABASE__SQL_ALCHEMY_CONN after discovery
+# build_db_url — after primary discovery, sets both connection strings:
+#   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN — metadata DB (airflow_user → airflow DB)
+#   AIRFLOW_CONN_POSTGRES_HA            — ETL DAG connection (pgadmin → postgres DB)
+# Both point directly to the Patroni primary to prevent writes reaching replicas.
 # ---------------------------------------------------------------------------
 build_db_url() {
   discover_primary
   export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN="postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@${PG_PRIMARY_HOST}:5432/${AIRFLOW_DB_NAME}"
-  log_info "Metadata DB URL: postgresql+psycopg2://${AIRFLOW_DB_USER}:***@${PG_PRIMARY_HOST}:5432/${AIRFLOW_DB_NAME}"
+  log_info "Metadata DB: postgresql+psycopg2://${AIRFLOW_DB_USER}:***@${PG_PRIMARY_HOST}:5432/${AIRFLOW_DB_NAME}"
+  # Override the static PgBouncer-based ETL connection with the direct primary.
+  # PgBouncer's postgres pool is round-robin across all 3 nodes — DAG write
+  # tasks would fail ~2/3 of the time if they land on a read-only replica.
+  export AIRFLOW_CONN_POSTGRES_HA="postgresql+psycopg2://pgadmin:${PGADMIN_PASSWORD}@${PG_PRIMARY_HOST}:5432/postgres?sslmode=disable"
+  log_info "ETL conn (postgres_ha): pgadmin@${PG_PRIMARY_HOST}:5432/postgres"
 }
 
 # ---------------------------------------------------------------------------

@@ -4,16 +4,21 @@
 #
 # Dependency chain:
 #   pg_nodes → pgbouncer → null_resource.airflow_db_setup (creates airflow DB + user)
+#            → docker_container.liquibase (records 05-grant-airflow-connect changeset)
 #            → airflow_init (db migrate + admin user)
-#            → airflow_webserver
-#            → airflow_scheduler
+#            → airflow_webserver / airflow_scheduler
 #
-# Metadata DB connection:
-#   airflow-entrypoint.sh discovers the Patroni primary via REST API
-#   (pg-node-1:8008 … pg-node-3:8008 — internal Docker DNS) and builds
-#   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN pointing directly to that node at
-#   port 5432, bypassing PgBouncer. This prevents "read-only transaction"
-#   errors that occur when Patroni elects a replica to primary after deploy.
+# Connection strategy (both URLs are set dynamically by airflow-entrypoint.sh):
+#   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN — airflow_user → airflow DB → Patroni primary
+#   AIRFLOW_CONN_POSTGRES_HA            — pgadmin      → postgres DB → Patroni primary
+#
+#   The entrypoint polls pg-node-{1,2,3}:8008/leader (Patroni REST API via internal
+#   Docker DNS) to find the current primary, then builds both URLs pointing to that
+#   node at port 5432. This guarantees writes never land on a read-only replica even
+#   after a Patroni failover, without any manual PgBouncer reconfiguration.
+#
+#   AIRFLOW_CONN_PGBOUNCER_ADMIN — pgadmin → pgbouncer virtual DB → admin console
+#   Used by the health-check DAG for SHOW POOLS (only works via admin console).
 # ============================================================================
 
 # ── Secrets ──────────────────────────────────────────────────────────────────
@@ -43,26 +48,27 @@ locals {
   airflow_fernet_key     = var.airflow_enabled ? random_id.airflow_fernet_key[0].b64_url : ""
   airflow_admin_password = (var.airflow_enabled && var.airflow_admin_password != "") ? var.airflow_admin_password : (var.airflow_enabled ? random_password.airflow_admin_password[0].result : "")
 
-  # ETL connection string (for DAGs connecting to the HA postgres cluster via PgBouncer)
-  airflow_etl_conn = var.airflow_enabled ? "postgresql://pgadmin:${local.postgres_password}@pgbouncer-1:6432/postgres?sslmode=disable" : ""
-
   # Shared env vars for all Airflow containers.
-  # AIRFLOW__DATABASE__SQL_ALCHEMY_CONN is NOT set here — airflow-entrypoint.sh
-  # discovers the Patroni primary at runtime and builds the URL dynamically.
+  # AIRFLOW__DATABASE__SQL_ALCHEMY_CONN and AIRFLOW_CONN_POSTGRES_HA are NOT
+  # set statically — airflow-entrypoint.sh discovers the Patroni primary at
+  # runtime and builds both URLs pointing directly to that node.
   airflow_common_env = var.airflow_enabled ? [
-    # Credentials passed separately so airflow-entrypoint.sh can build the URL
-    # pointing directly at the current Patroni primary (bypasses PgBouncer).
+    # Credentials for airflow-entrypoint.sh to build both DB URLs dynamically
     "AIRFLOW_DB_USER=airflow_user",
     "AIRFLOW_DB_PASSWORD=${local.airflow_db_password}",
     "AIRFLOW_DB_NAME=airflow",
+    # pgadmin password — entrypoint rebuilds AIRFLOW_CONN_POSTGRES_HA after
+    # discovering the primary so ETL write tasks never land on a replica.
+    "PGADMIN_PASSWORD=${local.postgres_password}",
     "AIRFLOW__CORE__EXECUTOR=LocalExecutor",
     "AIRFLOW__CORE__FERNET_KEY=${local.airflow_fernet_key}",
     "AIRFLOW__CORE__LOAD_EXAMPLES=False",
     "AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True",
     "AIRFLOW__WEBSERVER__BASE_URL=http://localhost:${var.airflow_port}",
     "AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True",
-    # ETL connection available to all DAGs via Airflow connection ID "postgres_ha"
-    "AIRFLOW_CONN_POSTGRES_HA=${local.airflow_etl_conn}",
+    # PgBouncer admin console — used by the health-check DAG for SHOW POOLS.
+    # Connects to the 'pgbouncer' virtual database (not a real PostgreSQL DB).
+    "AIRFLOW_CONN_PGBOUNCER_ADMIN=postgresql://pgadmin:${local.postgres_password}@pgbouncer-1:6432/pgbouncer",
   ] : []
 }
 

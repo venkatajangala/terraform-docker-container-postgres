@@ -10,6 +10,7 @@ Complete reference for all Terraform commands used in PostgreSQL HA Cluster depl
 - [Output Management](#output-management)
 - [Troubleshooting](#troubleshooting)
 - [Advanced Operations](#advanced-operations)
+- [Airflow ETL Platform (Feature Flag)](#airflow-etl-platform-feature-flag)
 
 ---
 
@@ -799,6 +800,74 @@ terraform output datadog_agent_info
 
 ---
 
-**Last Updated:** 2026-04-15
-**Version:** Phase 1 Optimized + Vault + Datadog
+## Airflow ETL Platform (Feature Flag)
+
+### Enable / Disable
+
+```bash
+# ha-test.tfvars
+airflow_enabled   = true
+airflow_port      = 8081   # Airflow webserver host port
+airflow_memory_mb = 2048   # memory limit per container
+airflow_admin_user = "admin"
+# airflow_admin_password = ""  # leave empty to auto-generate
+```
+
+### Key Variables
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `airflow_enabled` | `false` | Toggle all Airflow containers on/off |
+| `airflow_port` | `8081` | Host port for the Airflow webserver |
+| `airflow_memory_mb` | `2048` | Memory limit (MB) per Airflow container |
+| `airflow_admin_user` | `"admin"` | Airflow web UI admin username |
+| `airflow_admin_password` | `""` | Leave blank to auto-generate a random password |
+
+### Deploy and Verify
+
+```bash
+# Enable in ha-test.tfvars, then apply
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+
+# Get admin credentials
+terraform output airflow_credentials
+
+# Run full verification (14 checks)
+bash verify-airflow.sh
+
+# Open the UI
+open http://localhost:8081
+```
+
+### Re-init and Re-run
+
+```bash
+# Re-run airflow db migrate + recreate admin user (idempotent)
+terraform apply -replace=docker_container.airflow_init[0] \
+  -var-file=ha-test.tfvars -auto-approve
+
+# Re-run Liquibase (applies only new/unapplied changesets)
+terraform apply -replace=docker_container.liquibase[0] \
+  -var-file=ha-test.tfvars -auto-approve
+```
+
+### Airflow Dependency Chain
+
+```text
+pg_nodes → pgbouncer → null_resource.airflow_db_setup
+         → docker_container.liquibase   (05-grant-airflow-connect changeset)
+         → docker_container.airflow_init
+         → docker_container.airflow_webserver / airflow_scheduler
+```
+
+`null_resource.airflow_db_setup` creates the `airflow_user` PostgreSQL role and `airflow` database on the Patroni primary via `docker exec psql`. Liquibase records the grant in its changelog. Airflow init then runs `airflow db migrate`.
+
+### Connection Architecture
+
+Both `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN` (metadata DB) and `AIRFLOW_CONN_POSTGRES_HA` (ETL DAGs) are built dynamically by `airflow-entrypoint.sh` at container startup — they point directly to the Patroni primary discovered via REST API (`/leader`), not through PgBouncer's round-robin pool.
+
+---
+
+**Last Updated:** 2026-04-30
+**Version:** Phase 1 Optimized + Vault + Datadog + Airflow
 **Tested Against:** Terraform 1.0+, Docker Provider 3.0+

@@ -237,4 +237,21 @@ docker exec -it liquibase-migrations psql \
 
 ---
 
+## Airflow Integration
+
+The `05-setup-airflow-db.yml` changeset runs as part of every Liquibase execution when `airflow_enabled = true`. It records the `airflow_user` role and `airflow` database (created by `null_resource.airflow_db_setup`) in the changelog and grants CONNECT.
+
+```bash
+# Check if the Airflow changeset ran
+docker exec pg-node-1 psql -U postgres -d postgres \
+  -c "SELECT id, exectype, dateexecuted FROM databasechangelog WHERE id LIKE '05-%' ORDER BY orderexecuted;"
+
+# Re-run Liquibase after Airflow DB is provisioned (idempotent)
+terraform apply -replace=docker_container.liquibase[0] -var-file=ha-test.tfvars -auto-approve
+```
+
+**Dependency order**: `null_resource.airflow_db_setup` must complete before Liquibase starts — enforced via `depends_on`. The `05-grant-airflow-connect` changeset has a `preCondition` (`MARK_RAN` when airflow DB absent) so Liquibase stays clean when `airflow_enabled = false`.
+
+---
+
 For full documentation, see `LIQUIBASE-INTEGRATION.md`

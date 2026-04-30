@@ -48,6 +48,17 @@ Start here if you're new to this project:
 - **[Deployment Guide](../LIQUIBASE-DEPLOYMENT.md)** — HA-aware migration workflow
 - **[Test Scenarios](../LIQUIBASE-TEST-SCENARIOS.md)** — Validation and rollback testing
 
+## ✈️ ETL Platform (Airflow) — `airflow_enabled`
+
+Apache Airflow 2.x integrated with the Patroni HA cluster. Enabled via `airflow_enabled = true` in `ha-test.tfvars`.
+
+- **Web UI** — `http://localhost:8081` — DAG management, run history, logs
+- **Credentials** — `terraform output airflow_credentials`
+- **Verification** — `bash verify-airflow.sh` (14 checks: containers, API, DAGs, DB schema, admin user)
+- **DAGs** — `dags/postgres_etl_example.py` (ETL pipeline) · `dags/postgres_ha_health_check.py` (15-min cluster monitor)
+- **Config** — `main-airflow.tf` · `airflow-entrypoint.sh` · `setup-airflow-db.sh`
+- **Connection strategy** — `airflow-entrypoint.sh` discovers the Patroni primary at startup via REST API and builds both `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN` and `AIRFLOW_CONN_POSTGRES_HA` pointing directly to that node (port 5432), bypassing PgBouncer's round-robin pool to prevent writes landing on replicas
+
 ## 🧪 Testing & Validation
 
 - **[Testing Guide](testing/TESTING.md)** — Full test suite: cluster health, failover, pooling
@@ -149,6 +160,11 @@ docker exec datadog-agent agent check http_check
 # Local monitoring health check (requires monitoring_enabled = true)
 bash monitoring-health-check.sh
 # Open UIs: http://localhost:5005  http://localhost:3000  http://localhost:9090
+
+# Airflow verification (requires airflow_enabled = true)
+bash verify-airflow.sh
+# Open UI: http://localhost:8081
+# Get credentials: terraform output airflow_credentials
 ```
 
 ## 📈 Infrastructure Status
@@ -163,6 +179,7 @@ bash monitoring-health-check.sh
 - ✅ Datadog Agent observability (optional — `datadog_enabled`)
 - ✅ Local monitoring stack: Prometheus + Grafana + exporters (optional — `monitoring_enabled`)
 - ✅ nginx cluster status dashboard (optional — `dashboard_enabled`)
+- ✅ Apache Airflow ETL platform (optional — `airflow_enabled`)
 
 ---
 

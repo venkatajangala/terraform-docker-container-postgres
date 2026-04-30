@@ -212,3 +212,17 @@ sequenceDiagram
 - Failover does not affect migration history — `databasechangelog` is replicated.
 - Re-running `terraform apply` is safe: Liquibase skips already-executed changesets.
 - `04-add-products.yml` includes rollback blocks — use `rollback-count 1` to revert.
+
+## Airflow Dependency
+
+Changeset `05-setup-airflow-db.yml` provisions the Airflow metadata database:
+
+| Changeset | Action | Condition |
+| --------- | ------ | --------- |
+| `05-airflow-user-exists` | Records that `airflow_user` role exists | `MARK_RAN` if role already exists |
+| `05-airflow-database-exists` | Records that `airflow` database exists | `MARK_RAN` if DB already exists |
+| `05-grant-airflow-connect` | `GRANT CONNECT ON DATABASE airflow TO airflow_user` | `MARK_RAN` if `airflow` DB does not exist |
+
+**Ordering guarantee**: `docker_container.liquibase` has `depends_on = [null_resource.airflow_db_setup]`. The `null_resource` runs `setup-airflow-db.sh` (creates `airflow_user` + `airflow` DB via `docker exec psql`) before Liquibase starts, so the GRANT changeset is guaranteed to find the database.
+
+**When `airflow_enabled = false`**: the `05-grant-airflow-connect` preCondition evaluates to `MARK_RAN` (airflow DB absent), keeping the changelog clean without errors.

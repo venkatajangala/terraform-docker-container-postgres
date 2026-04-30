@@ -14,9 +14,10 @@ Complete testing procedures for PostgreSQL HA Cluster with Liquibase, PgBouncer,
 6. [PgBouncer Tests](#pgbouncer-tests)
 7. [Vault Tests](#vault-tests)
 8. [Datadog Tests](#datadog-tests)
-9. [Performance Tests](#performance-tests)
-10. [Failover & Recovery Tests](#failover--recovery-tests)
-11. [Test Reporting](#test-reporting)
+9. [Airflow Integration Tests](#airflow-integration-tests)
+10. [Performance Tests](#performance-tests)
+11. [Failover & Recovery Tests](#failover--recovery-tests)
+12. [Test Reporting](#test-reporting)
 
 ---
 
@@ -980,6 +981,97 @@ chmod +x run-all-tests.sh
 | PgBouncer can't connect | Auth error | Check credentials from `terraform output` |
 | Vault not responding | Service down | Check `docker logs vault` |
 | Failover takes too long | Patroni config | See Patroni documentation for tuning |
+
+---
+
+## Airflow Integration Tests
+
+Requires `airflow_enabled = true` in `ha-test.tfvars`.
+
+### 9.1 Container Health
+
+```bash
+# airflow-init must have exited cleanly
+docker inspect airflow-init --format '{{.State.ExitCode}}'
+# Expected: 0
+
+# Webserver and scheduler must be running
+docker ps --filter "name=airflow-webserver" --filter "name=airflow-scheduler"
+# Expected: both containers in "Up" state
+
+# Check webserver health endpoint
+curl -sf http://localhost:8081/health | python3 -m json.tool
+# Expected: {"metadatabase": {"status": "healthy"}, "scheduler": {"status": "healthy"}}
+```
+
+**Expected Results**: Exit code 0 for init; both services running; health endpoint returns `healthy`.
+
+### 9.2 Full Verification Suite
+
+```bash
+# Run the 8-section, 14-check verification script
+bash verify-airflow.sh
+
+# Quick mode (skips DAG trigger — faster for CI)
+bash verify-airflow.sh --quick
+```
+
+**Expected Results**: All 14 checks pass with no FAIL lines.
+
+### 9.3 PgBouncer Pool Check
+
+```bash
+# Verify the airflow session pool is present in PgBouncer
+PGPASSWORD="$(terraform output -raw pgadmin_password)" \
+  psql -h localhost -p 6432 -U pgadmin -d pgbouncer -c "SHOW POOLS;" \
+  | grep airflow
+```
+
+**Expected Results**: Row(s) for `airflow` database visible in pool list.
+
+### 9.4 DAG Discovery
+
+```bash
+# List DAGs known to Airflow
+docker exec airflow-webserver airflow dags list
+```
+
+**Expected Results**: Both `postgres_etl_example` and `postgres_ha_health_check` appear with no import errors.
+
+### 9.5 Metadata DB Schema
+
+```bash
+# Count tables in the airflow metadata database
+docker exec pg-node-1 psql -h 127.0.0.1 -U postgres -d airflow \
+  -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';"
+```
+
+**Expected Results**: Count > 20 (Airflow creates ~30+ tables during `db migrate`).
+
+### 9.6 ETL DAG Trigger and Completion
+
+```bash
+# Trigger the ETL example DAG
+docker exec airflow-webserver airflow dags trigger postgres_etl_example
+
+# Wait ~30s then check the most recent run state
+docker exec airflow-webserver airflow dags list-runs \
+  -d postgres_etl_example --output table | head -5
+```
+
+**Expected Results**: Run state is `success`.
+
+### 9.7 Primary Routing Test
+
+The `check_connection` task in `postgres_etl_example` verifies the connection reaches the primary:
+
+```bash
+# After a successful DAG run, check task logs for pg_is_in_recovery = false
+docker exec airflow-webserver \
+  airflow tasks logs postgres_etl_example check_connection latest
+```
+
+**Expected Results**: Log output contains `pg_is_in_recovery = false`, confirming the DAG connected to the primary and not a replica.
 
 ---
 

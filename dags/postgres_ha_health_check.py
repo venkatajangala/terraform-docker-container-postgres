@@ -7,9 +7,14 @@ Raises an alert (task failure) if no leader is found or replication lag is high.
 Tasks:
   1. check_patroni_leader   — verify a leader exists via /leader on each node
   2. check_cluster_topology — log all member roles, lag, and timeline
-  3. check_pgbouncer_pools  — verify PgBouncer connection pools via SHOW POOLS
+  3. check_pgbouncer_pools  — verify PgBouncer pools via admin console (SHOW POOLS)
 
-Schedule: every 15 minutes (can be changed)
+Connections used:
+  postgres_ha        — direct to Patroni primary; injected by airflow-entrypoint.sh
+  pgbouncer_admin    — PgBouncer admin console (pgbouncer virtual DB, port 6432)
+                       injected via AIRFLOW_CONN_PGBOUNCER_ADMIN env var
+
+Schedule: every 15 minutes (DAG is paused on creation — unpause to activate)
 """
 
 from __future__ import annotations
@@ -29,8 +34,9 @@ PATRONI_NODES = [
     ("pg-node-2", 8008),
     ("pg-node-3", 8008),
 ]
-POSTGRES_CONN_ID = "postgres_ha"
-LAG_WARNING_BYTES = 50 * 1024 * 1024  # 50 MB
+POSTGRES_CONN_ID   = "postgres_ha"        # direct to primary
+PGBOUNCER_CONN_ID  = "pgbouncer_admin"    # pgbouncer virtual DB for SHOW POOLS
+LAG_WARNING_BYTES  = 50 * 1024 * 1024     # 50 MB
 
 default_args = {
     "owner": "airflow",
@@ -61,7 +67,6 @@ def check_patroni_leader(**ctx):
 
 
 def check_cluster_topology(**ctx):
-    # Query /cluster from any reachable node
     for host, port in PATRONI_NODES:
         try:
             resp = requests.get(f"http://{host}:{port}/cluster", timeout=5)
@@ -77,7 +82,7 @@ def check_cluster_topology(**ctx):
                     timeline = m.get("timeline", "?")
                     print(f"  {m['name']:15s}  role={role:10s}  state={state:12s}  lag={lag:>10}  tl={timeline}")
                     if isinstance(lag, int) and lag > LAG_WARNING_BYTES:
-                        print(f"  ⚠  WARNING: {m['name']} replication lag {lag} bytes > threshold {LAG_WARNING_BYTES}")
+                        print(f"  WARNING: {m['name']} replication lag {lag} bytes > threshold {LAG_WARNING_BYTES}")
                         lag_warning = True
                 if lag_warning:
                     raise RuntimeError("Replication lag exceeded threshold — check cluster health")
@@ -90,26 +95,42 @@ def check_cluster_topology(**ctx):
 
 
 def check_pgbouncer_pools(**ctx):
-    hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
+    """
+    Connect to PgBouncer's admin console (virtual 'pgbouncer' database) and
+    run SHOW POOLS. This connection is injected via AIRFLOW_CONN_PGBOUNCER_ADMIN
+    and targets pgbouncer-1:6432/pgbouncer — the PgBouncer admin console.
+
+    NOTE: SHOW POOLS only works when connected to the 'pgbouncer' virtual DB,
+    NOT when connected to a real PostgreSQL database through PgBouncer.
+    """
+    hook = PostgresHook(postgres_conn_id=PGBOUNCER_CONN_ID)
     rows = hook.get_records("SHOW POOLS")
     print(f"PgBouncer pools ({len(rows)} entries):")
     for r in rows:
-        # columns: database, user, cl_active, cl_waiting, sv_active, sv_idle, sv_used, sv_tested, sv_login, maxwait
-        db = r[0] if len(r) > 0 else "?"
-        user = r[1] if len(r) > 1 else "?"
+        # columns: database, user, cl_active, cl_waiting, sv_active, sv_idle,
+        #          sv_used, sv_tested, sv_login, maxwait, maxwait_us, pool_mode
+        db       = r[0]  if len(r) > 0 else "?"
+        user     = r[1]  if len(r) > 1 else "?"
         cl_active = r[2] if len(r) > 2 else 0
         sv_active = r[4] if len(r) > 4 else 0
-        maxwait = r[9] if len(r) > 9 else 0
+        maxwait   = r[9] if len(r) > 9 else 0
         print(f"  db={db:25s}  user={user:15s}  cl_active={cl_active}  sv_active={sv_active}  maxwait={maxwait}s")
         if maxwait and int(maxwait) > 10:
             raise RuntimeError(f"PgBouncer pool '{db}' maxwait={maxwait}s — client queue building up!")
+
+    # Also verify the primary PostgreSQL connection is writable
+    pg_hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
+    is_replica = pg_hook.get_first("SELECT pg_is_in_recovery()")[0]
+    if is_replica:
+        raise RuntimeError("postgres_ha connection landed on a replica — primary election may be in progress")
+    print("postgres_ha connection verified: connected to primary (not in recovery)")
 
 
 with DAG(
     dag_id="postgres_ha_health_check",
     description="Monitors Patroni cluster topology and PgBouncer pool health",
     default_args=default_args,
-    schedule_interval="*/15 * * * *",  # every 15 minutes
+    schedule_interval="*/15 * * * *",
     start_date=days_ago(1),
     catchup=False,
     tags=["monitoring", "patroni", "ha", "pgbouncer"],

@@ -189,8 +189,8 @@ output "airflow_credentials" {
     web_password      = local.airflow_admin_password
     db_user           = "airflow_user"
     db_password       = local.airflow_db_password
-    db_url_note       = "URL built dynamically by airflow-entrypoint.sh (direct to Patroni primary)"
-    etl_conn_postgres = local.airflow_etl_conn
+    db_url_note       = "Both DB URLs built dynamically by airflow-entrypoint.sh (direct to Patroni primary)"
+    etl_db            = "postgres (pgadmin user, direct to primary via postgres_ha connection)"
   } : null
 }
 

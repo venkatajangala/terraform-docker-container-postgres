@@ -13,6 +13,7 @@
 7. [Monitoring](#monitoring)
 8. [Datadog Observability](#datadog-observability)
 9. [Scaling](#scaling)
+10. [Airflow ETL Platform](#airflow-etl-platform)
 
 ---
 
@@ -940,3 +941,133 @@ terraform destroy -target='docker_container.vault' -auto-approve  # destroy Vaul
 **Last Updated:** 2026
 **Status:** Production Ready ✓
 **Version:** Phase 1 Optimized
+
+---
+
+## Airflow ETL Platform
+
+Apache Airflow 2.x is an optional ETL platform that connects to the PostgreSQL HA cluster via PgBouncer and stores its metadata in a dedicated `airflow` database.
+
+### Enable / Disable
+
+Set the feature flag in `ha-test.tfvars`:
+
+```hcl
+airflow_enabled = true   # false to skip all Airflow containers
+```
+
+When disabled, no Airflow containers, volumes, or image builds are created.
+
+### Network Port
+
+```text
+Airflow Webserver: 8081 (localhost, when airflow_enabled = true)
+```
+
+### Deploy
+
+```bash
+# Deploy full stack including Airflow
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+
+# Wait for cluster and Airflow to be ready (~3 min total)
+sleep 180
+
+# Verify Airflow (8-section, 14-check suite)
+bash verify-airflow.sh
+
+# Quick check (skips DAG trigger)
+bash verify-airflow.sh --quick
+```
+
+### Accessing the UI
+
+```bash
+# Open the Airflow web interface
+open http://localhost:8081
+
+# Get the generated admin credentials
+terraform output airflow_credentials
+```
+
+### Re-Initialize Airflow
+
+If the init container failed or the admin user needs to be recreated:
+
+```bash
+terraform apply -replace=docker_container.airflow_init[0] -var-file=ha-test.tfvars -auto-approve
+```
+
+This re-runs `airflow db migrate` and recreates the admin user. It is safe to run against an existing metadata DB.
+
+### DAG Operations
+
+```bash
+# List all discovered DAGs
+docker exec airflow-webserver airflow dags list
+
+# Trigger the ETL example DAG
+docker exec airflow-webserver airflow dags trigger postgres_etl_example
+
+# Check run state (replace <run_id> with output of trigger command)
+docker exec airflow-webserver airflow dags state postgres_etl_example <run_id>
+
+# Trigger the HA health check DAG
+docker exec airflow-webserver airflow dags trigger postgres_ha_health_check
+```
+
+### Included DAGs
+
+| DAG | Schedule | Description |
+| --- | -------- | ----------- |
+| `postgres_etl_example` | Manual | 5-task ETL: check connection → extract audit_log → transform → load summary → verify |
+| `postgres_ha_health_check` | Every 15 min | Polls Patroni leader, topology, and PgBouncer `SHOW POOLS` |
+
+Both DAGs use connection ID `postgres_ha`, which points directly to the Patroni primary at port 5432 (bypassing PgBouncer round-robin for write safety).
+
+### Connection Strategy
+
+`airflow-entrypoint.sh` discovers the Patroni primary at container startup via the Patroni REST API (`/leader`). It then sets:
+
+- `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN` — direct to primary:5432 (`airflow` DB, session-mode pool)
+- `AIRFLOW_CONN_POSTGRES_HA` — direct to primary:5432 for DAG task connections
+
+This ensures metadata writes and ETL operations always reach the writable primary, even after a failover (the entrypoint re-discovers on restart).
+
+### Dependency Chain
+
+```text
+pg_nodes → pgbouncer → null_resource.airflow_db_setup
+  → liquibase (applies 05-setup-airflow-db.yml: airflow_user + airflow DB)
+  → airflow_init (airflow db migrate + admin user)
+  → airflow_webserver / airflow_scheduler
+```
+
+Liquibase changeset `05-setup-airflow-db.yml` creates the `airflow_user` role and `airflow` database. Airflow init will fail if this changeset has not run.
+
+### Airflow Troubleshooting
+
+#### airflow-init exits non-zero
+
+```bash
+docker logs airflow-init --tail 80
+```
+
+Common causes: `airflow` database does not exist (Liquibase did not run), or `airflow_user` role missing. Re-run Liquibase first:
+
+```bash
+terraform apply -replace=docker_container.liquibase[0] -var-file=ha-test.tfvars -auto-approve
+# Then re-run init
+terraform apply -replace=docker_container.airflow_init[0] -var-file=ha-test.tfvars -auto-approve
+```
+
+#### Webserver or scheduler not starting
+
+```bash
+docker logs airflow-webserver -f
+docker logs airflow-scheduler -f
+```
+
+#### Port 8081 already in use
+
+Change `airflow_port` in `ha-test.tfvars` and re-apply.
