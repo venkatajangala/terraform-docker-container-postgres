@@ -1,0 +1,20 @@
+FROM apache/airflow:2.10.2-python3.12
+
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libpq-dev build-essential && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+USER airflow
+
+# 1. Install standard providers first
+RUN pip install --no-cache-dir \
+    "psycopg2-binary>=2.9.9" \
+    "apache-airflow-providers-postgres>=5.11.0"
+
+# 2. Install CPU-only Torch to avoid the massive 1GB+ CUDA downloads
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# 3. Finally install sentence-transformers (it will use the CPU torch we just installed)
+RUN pip install --no-cache-dir "sentence-transformers>=3.0.0"

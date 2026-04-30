@@ -87,6 +87,7 @@ LIQUIBASE_USERNAME="${DB_USER}"
 LIQUIBASE_PASSWORD="${DB_PASSWORD}"
 LIQUIBASE_CHANGELOG_DIR="/liquibase/changelog"
 LIQUIBASE_CHANGELOG_FILE="db.changelog-master.yml"
+LIQUIBASE_EXTRA_ARGS=()
 
 # Patroni API port used by all nodes inside the Docker network
 PATRONI_PORT="${PATRONI_PORT:-8008}"
@@ -196,6 +197,7 @@ run_liquibase() {
       --password="$LIQUIBASE_PASSWORD" \
       --driver="$LIQUIBASE_DRIVER" \
       --changeLogFile="$LIQUIBASE_CHANGELOG_FILE" \
+      "${LIQUIBASE_EXTRA_ARGS[@]}" \
       update; then
     log_info "Liquibase migrations completed successfully"
     return 0

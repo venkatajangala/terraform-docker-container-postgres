@@ -393,15 +393,19 @@ resource "docker_container" "pgbouncer" {
   image   = docker_image.pgbouncer[0].image_id
   restart = "unless-stopped"
 
-  env = concat([
-    "PGBOUNCER_CONFIG_DIR=/etc/pgbouncer",
-    "PGBOUNCER_LOG_DIR=/var/log/pgbouncer",
-    "PGBOUNCER_PORT=6432",
-    "DB_ADMIN_USER=${var.postgres_user}",
-    "DB_ADMIN_PASSWORD=${local.postgres_password}",
-    "DB_REPLICATION_USER=replicator",
-    "DB_REPLICATION_PASSWORD=${local.replication_password}"
-  ], local.vault_env)
+  env = concat(
+    [
+      "PGBOUNCER_CONFIG_DIR=/etc/pgbouncer",
+      "PGBOUNCER_LOG_DIR=/var/log/pgbouncer",
+      "PGBOUNCER_PORT=6432",
+      "DB_ADMIN_USER=${var.postgres_user}",
+      "DB_ADMIN_PASSWORD=${local.postgres_password}",
+      "DB_REPLICATION_USER=replicator",
+      "DB_REPLICATION_PASSWORD=${local.replication_password}"
+    ],
+    var.airflow_enabled ? ["AIRFLOW_DB_PASSWORD=${random_password.airflow_db_password[0].result}"] : [],
+    local.vault_env
+  )
 
   ports {
     internal = 6432
@@ -444,7 +448,8 @@ resource "docker_container" "pgbouncer" {
   }
 
   networks_advanced {
-    name = docker_network.pg_ha_network.name
+    name    = docker_network.pg_ha_network.name
+    aliases = ["pgbouncer"]
   }
 
   # Resource limits

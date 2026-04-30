@@ -27,13 +27,13 @@ pgbouncer_reserve_pool_size  = 5
 // Vault runs in server mode with Raft integrated storage (persistent).
 // vault-bootstrap.sh initialises + unseals on first deploy and writes
 // the root token / unseal keys to .vault-bootstrap/vault-init.json.
-vault_enabled          = true
-vault_port             = 8200
-vault_raft_nodes       = 1
-vault_agent_enabled    = true
+vault_enabled       = true
+vault_port          = 8200
+vault_raft_nodes    = 1
+vault_agent_enabled = true
 
 // Liquibase tuning: give Patroni leader election extra time when Vault startup adds overhead
-liquibase_max_retries  = 60  // 60 x 5s = 5 min (default 30 x 5s = 2.5 min was too short)
+liquibase_max_retries = 60 // 60 x 5s = 5 min (default 30 x 5s = 2.5 min was too short)
 
 // Datadog Agent Configuration
 // Set datadog_enabled = true and supply your API key to activate monitoring.
@@ -41,17 +41,27 @@ liquibase_max_retries  = 60  // 60 x 5s = 5 min (default 30 x 5s = 2.5 min was t
 //   export TF_VAR_datadog_api_key="your-actual-api-key"
 //   terraform apply -var-file="ha-test.tfvars" -auto-approve
 datadog_enabled     = false
-datadog_api_key     = ""           // Leave empty and set via TF_VAR_datadog_api_key
-datadog_site        = "datadoghq.com"  // Change to "datadoghq.eu" for EU region
+datadog_api_key     = ""              // Leave empty and set via TF_VAR_datadog_api_key
+datadog_site        = "datadoghq.com" // Change to "datadoghq.eu" for EU region
 datadog_memory_mb   = 512
-datadog_statsd_port = 8125         // Host UDP port for DogStatsD custom metrics
+datadog_statsd_port = 8125 // Host UDP port for DogStatsD custom metrics
 
 // Local Status Dashboard
 dashboard_enabled = true
-dashboard_port    = 5005           // http://localhost:5005
+dashboard_port    = 5005 // http://localhost:5005
 
 // Prometheus + Grafana Monitoring Stack
-monitoring_enabled     = true
-prometheus_port        = 9090      // http://localhost:9090
-grafana_port           = 3000      // http://localhost:3000  (admin / admin)
+monitoring_enabled = true
+prometheus_port    = 9090 // http://localhost:9090
+grafana_port       = 3000 // http://localhost:3000  (admin / admin)
 // grafana_admin_password = "admin" // override via TF_VAR_grafana_admin_password
+
+// Apache Airflow ETL Platform
+// Requires: liquibase_enabled = true (Liquibase creates the airflow DB and user first)
+// Web UI: http://localhost:8081  (admin / see terraform output airflow_credentials)
+// Ad-hoc re-init: terraform apply -replace=docker_container.airflow_init[0] -var-file=ha-test.tfvars
+airflow_enabled    = true
+airflow_port       = 8081
+airflow_memory_mb  = 2048
+airflow_admin_user = "admin"
+// airflow_admin_password = ""  // Leave empty to auto-generate (see terraform output airflow_credentials)

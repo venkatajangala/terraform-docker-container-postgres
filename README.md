@@ -115,6 +115,19 @@ unset PGPASSWORD
 - **Health check script** — `bash monitoring-health-check.sh` (7-section report + `--targets`, `--metrics`, `--dashboard` flags)
 - Toggle with `monitoring_enabled = true` and `dashboard_enabled = true` in `ha-test.tfvars`
 
+### ✅ Apache Airflow ETL Platform
+
+- **Webserver** at `http://localhost:8081` — full Airflow UI with DAG management, task history, and log viewer
+- **Scheduler** — continuous DAG scheduling with LocalExecutor
+- **Dedicated metadata DB** — `airflow` PostgreSQL database (separate from app DB), created by Liquibase
+- **PgBouncer session pool** — `airflow` pool in `pgbouncer.ini` (session mode, routes to primary)
+- **Example DAGs** bundled in `dags/`:
+  - `postgres_etl_example` — extract from `audit_log`, transform, load summary table
+  - `postgres_ha_health_check` — poll Patroni REST API + PgBouncer `SHOW POOLS` every 15 min
+- **Proper Fernet key** — generated from 32 cryptographic random bytes via `random_id.b64_url`
+- **Auto admin user** — created during `airflow-init` one-shot container (`airflow db migrate` + `airflow users create`)
+- Toggle with `airflow_enabled = true` in `ha-test.tfvars`; see credentials with `terraform output airflow_credentials`
+
 ## 📊 System Architecture
 
 ```mermaid
@@ -180,9 +193,30 @@ graph TD
     style PGB2 fill:#6a1b9a,color:#fff
     style ETCD fill:#e65100,color:#fff
     style LB fill:#37474f,color:#fff
+    subgraph ETL["ETL Platform — optional (airflow_enabled)"]
+        AFINIT[airflow-init one-shot]
+        AFWEB[airflow-webserver :8081]
+        AFSCHED[airflow-scheduler]
+    end
+
+    LB -->|creates airflow DB+user| PGB1
+    AFINIT -->|airflow db migrate| PGB1
+    AFWEB & AFSCHED -->|metadata DB airflow session pool| PGB1
+    AFWEB & AFSCHED -->|ETL DAGs postgres_ha conn| PGB1 & PGB2
+
+    style PG1 fill:#2e7d32,color:#fff
+    style PG2 fill:#1565c0,color:#fff
+    style PG3 fill:#1565c0,color:#fff
+    style PGB1 fill:#6a1b9a,color:#fff
+    style PGB2 fill:#6a1b9a,color:#fff
+    style ETCD fill:#e65100,color:#fff
+    style LB fill:#37474f,color:#fff
     style VAULT fill:#c62828,color:#fff
     style AGENT fill:#f57c00,color:#fff
     style DD fill:#632ca6,color:#fff
+    style AFINIT fill:#37474f,color:#fff
+    style AFWEB fill:#00838f,color:#fff
+    style AFSCHED fill:#00695c,color:#fff
 ```
 
 ## 🔑 Key Features
@@ -195,6 +229,7 @@ graph TD
 | **Monitoring** | REST API + Web UI for cluster status |
 | **Observability** | Datadog Agent — metrics, logs, integration checks |
 | **Local Monitoring** | Prometheus + Grafana dashboards + nginx status dashboard |
+| **ETL Platform** | Apache Airflow with example DAGs, HA-aware PgBouncer pool |
 | **Scalability** | Support for 1000s of concurrent connections |
 | **Production Ready** | Tested, documented, ready to deploy |
 

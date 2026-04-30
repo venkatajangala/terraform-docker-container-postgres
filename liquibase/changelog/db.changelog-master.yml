@@ -7,3 +7,5 @@ databaseChangeLog:
       file: 03-create-tables.yml
   - include:
       file: 04-add-products.yml
+  - include:
+      file: 05-setup-airflow-db.yml

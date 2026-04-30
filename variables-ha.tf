@@ -355,3 +355,41 @@ variable "grafana_admin_password" {
   sensitive   = true
   description = "Grafana admin password. Override via TF_VAR_grafana_admin_password."
 }
+
+# ── Apache Airflow ETL Platform ───────────────────────────────────────────────
+
+variable "airflow_enabled" {
+  type        = bool
+  default     = false
+  description = "Enable Apache Airflow ETL platform (webserver + scheduler + init)."
+}
+
+variable "airflow_port" {
+  type        = number
+  default     = 8081
+  description = "Host port for Airflow webserver UI (http://localhost:<airflow_port>)."
+}
+
+variable "airflow_memory_mb" {
+  type        = number
+  default     = 2048
+  description = "Memory limit per Airflow container (webserver and scheduler) in MB."
+
+  validation {
+    condition     = var.airflow_memory_mb >= 512 && var.airflow_memory_mb <= 8192
+    error_message = "airflow_memory_mb must be between 512 MB and 8 GB."
+  }
+}
+
+variable "airflow_admin_user" {
+  type        = string
+  default     = "admin"
+  description = "Airflow web UI admin username."
+}
+
+variable "airflow_admin_password" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Airflow web UI admin password. Leave empty to auto-generate."
+}

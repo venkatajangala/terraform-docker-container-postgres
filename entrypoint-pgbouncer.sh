@@ -121,6 +121,12 @@ cat > "$PGBOUNCER_CONFIG_DIR/userlist.txt" <<EOF
 "${DB_REPLICATION_USER}" "${DB_REPLICATION_PASSWORD}"
 EOF
 
+# Add Airflow metadata DB user when the password is injected by Terraform
+if [ -n "${AIRFLOW_DB_PASSWORD:-}" ]; then
+  echo '"airflow_user" "'"${AIRFLOW_DB_PASSWORD}"'"' >> "$PGBOUNCER_CONFIG_DIR/userlist.txt"
+  echo "Added airflow_user to userlist.txt"
+fi
+
 # Set permissions
 chown postgres:postgres "$PGBOUNCER_CONFIG_DIR/userlist.txt"
 chmod 640 "$PGBOUNCER_CONFIG_DIR/userlist.txt"

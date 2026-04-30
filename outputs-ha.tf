@@ -167,6 +167,46 @@ output "datadog_enabled" {
   description = "Whether the Datadog Agent container is deployed"
 }
 
+# ============================================================================
+# Airflow ETL Platform Outputs
+# ============================================================================
+
+output "airflow_enabled" {
+  value       = var.airflow_enabled
+  description = "Whether the Apache Airflow ETL platform is deployed"
+}
+
+output "airflow_url" {
+  value       = var.airflow_enabled ? "http://localhost:${var.airflow_port}" : null
+  description = "Airflow webserver UI URL"
+}
+
+output "airflow_credentials" {
+  sensitive   = true
+  description = "Airflow web UI and database credentials"
+  value = var.airflow_enabled ? {
+    web_user          = var.airflow_admin_user
+    web_password      = local.airflow_admin_password
+    db_user           = "airflow_user"
+    db_password       = local.airflow_db_password
+    db_url_note       = "URL built dynamically by airflow-entrypoint.sh (direct to Patroni primary)"
+    etl_conn_postgres = local.airflow_etl_conn
+  } : null
+}
+
+output "airflow_info" {
+  value = var.airflow_enabled ? {
+    webserver_url    = "http://localhost:${var.airflow_port}"
+    scheduler        = "docker logs airflow-scheduler -f"
+    init_logs        = "docker logs airflow-init"
+    health_check     = "bash verify-airflow.sh"
+    re_init          = "terraform apply -replace=docker_container.airflow_init[0] -var-file=ha-test.tfvars -auto-approve"
+    re_run_liquibase = "terraform apply -replace=docker_container.liquibase[0] -var-file=ha-test.tfvars -auto-approve"
+    dags_dir         = "${path.cwd}/dags"
+  } : null
+  description = "Airflow operational quick-reference"
+}
+
 output "datadog_agent_info" {
   value = var.datadog_enabled ? {
     container_name  = docker_container.datadog_agent[0].name

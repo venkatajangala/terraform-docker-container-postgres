@@ -71,9 +71,11 @@ resource "docker_container" "liquibase" {
   }
 
   # Container will exit after migrations complete (one-shot)
-  rm = false
+  rm       = false
   must_run = false
 
-  # Dependency: wait for PgBouncer AND Vault bootstrap (KV secrets must be seeded first)
-  depends_on = [docker_container.pgbouncer, docker_image.liquibase, null_resource.vault_init]
+  # Dependency: wait for PgBouncer AND Vault bootstrap (KV secrets must be seeded first).
+  # Also wait for airflow_db_setup so the airflow database exists before
+  # the 05-grant-airflow-connect changeset runs (count=0 when airflow is disabled).
+  depends_on = [docker_container.pgbouncer, docker_image.liquibase, null_resource.vault_init, null_resource.airflow_db_setup]
 }

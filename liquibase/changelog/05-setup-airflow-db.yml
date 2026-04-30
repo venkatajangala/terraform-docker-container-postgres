@@ -1,0 +1,58 @@
+databaseChangeLog:
+  # ============================================================================
+  # Airflow metadata database setup — recorded in Liquibase changelog for audit.
+  # The actual user creation and DB creation are handled by
+  # null_resource.airflow_db_setup (setup-airflow-db.sh) in main-airflow.tf,
+  # which runs before Liquibase. These changesets use preConditions so they are
+  # MARK_RAN (skipped) when the objects already exist.
+  # ============================================================================
+
+  - changeSet:
+      id: 05-airflow-user-exists
+      author: vejang
+      comment: "Record that airflow_user was provisioned by Terraform (null_resource.airflow_db_setup)"
+      preConditions:
+        onFail: MARK_RAN
+        onError: MARK_RAN
+        sqlCheck:
+          expectedResult: "0"
+          sql: "SELECT COUNT(1) FROM pg_catalog.pg_roles WHERE rolname = 'airflow_user'"
+      changes:
+        - sql:
+            sql: "SELECT 1; -- airflow_user must already exist (created by setup-airflow-db.sh)"
+            splitStatements: false
+
+  - changeSet:
+      id: 05-airflow-database-exists
+      author: vejang
+      comment: "Record that airflow database was provisioned by Terraform (null_resource.airflow_db_setup)"
+      runInTransaction: false
+      preConditions:
+        onFail: MARK_RAN
+        onError: MARK_RAN
+        sqlCheck:
+          expectedResult: "0"
+          sql: "SELECT COUNT(1) FROM pg_catalog.pg_database WHERE datname = 'airflow'"
+      changes:
+        - sql:
+            sql: "SELECT 1; -- airflow database must already exist (created by setup-airflow-db.sh)"
+            splitStatements: false
+
+  - changeSet:
+      id: 05-grant-airflow-connect
+      author: vejang
+      comment: "Ensure airflow_user has CONNECT privilege on the airflow database"
+      preConditions:
+        onFail: MARK_RAN
+        onError: MARK_RAN
+        sqlCheck:
+          expectedResult: "1"
+          sql: "SELECT COUNT(1) FROM pg_catalog.pg_database WHERE datname = 'airflow'"
+      changes:
+        - sql:
+            sql: "GRANT CONNECT ON DATABASE airflow TO airflow_user;"
+            splitStatements: false
+      rollback:
+        - sql:
+            sql: "REVOKE CONNECT ON DATABASE airflow FROM airflow_user;"
+            splitStatements: false

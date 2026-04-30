@@ -13,6 +13,7 @@ Production-ready **PostgreSQL 18 High Availability cluster** managed entirely wi
 - Datadog Agent for metrics, logs, and integration checks (optional, toggle via `datadog_enabled`)
 - Prometheus + Grafana + exporter sidecars for local metrics dashboards (optional, toggle via `monitoring_enabled`)
 - nginx status dashboard for live cluster overview (optional, toggle via `dashboard_enabled`)
+- **Apache Airflow 2.x ETL platform** (optional, toggle via `airflow_enabled`) — connects to PostgreSQL HA via PgBouncer, stores metadata in a dedicated `airflow` DB, ships with example DAGs
 
 ## Key Commands
 
@@ -60,6 +61,36 @@ bash test-liquibase.sh
 bash verify-liquibase.sh
 ```
 
+### Airflow ETL Platform
+
+```bash
+# Full verification (containers, API, DAGs, PgBouncer pool, DB schema)
+bash verify-airflow.sh
+
+# Quick check (skips DAG trigger)
+bash verify-airflow.sh --quick
+
+# Web UI
+open http://localhost:8081          # Airflow webserver
+terraform output airflow_credentials # get admin password
+
+# Logs
+docker logs airflow-init --tail 50
+docker logs airflow-webserver -f
+docker logs airflow-scheduler -f
+
+# DAG operations
+docker exec airflow-webserver airflow dags list
+docker exec airflow-webserver airflow dags trigger postgres_etl_example
+docker exec airflow-webserver airflow dags state postgres_etl_example <run_id>
+
+# Re-run Airflow init (db migrate + recreate admin user)
+terraform apply -replace=docker_container.airflow_init[0] -var-file=ha-test.tfvars -auto-approve
+
+# Re-run Liquibase at any time (idempotent — only applies new changesets)
+terraform apply -replace=docker_container.liquibase[0] -var-file=ha-test.tfvars -auto-approve
+```
+
 ### Datadog Monitoring
 
 ```bash
@@ -105,6 +136,7 @@ open http://localhost:9090   # Prometheus
 - **main-datadog.tf** — Datadog Agent container, `datadog-data` volume, rendered integration configs
 - **main-dashboard.tf** — nginx `pg-dashboard` container (port 5005); bind-mounts `index.html` + rendered `nginx.conf`
 - **main-monitoring.tf** — Prometheus, Grafana, `postgres-exporter-{1,2,3}`, `pgbouncer-exporter-{1,2}` containers; Prometheus config rendered via `local_file`
+- **main-airflow.tf** — Airflow image build, `airflow-init` (one-shot: db migrate + admin user), `airflow-webserver` (:8081), `airflow-scheduler`; Fernet key via `random_id.b64_url`
 - **variables-ha.tf** — All configuration knobs (passwords, pool sizes, memory limits, feature flags)
 - **outputs-ha.tf** — Connection strings, endpoints, generated credentials
 
@@ -146,6 +178,12 @@ graph LR
         PGBE["pgbouncer-exporter × 2"]
     end
 
+    subgraph ETL["ETL Platform — optional (airflow_enabled)"]
+        AFINIT["airflow-init\none-shot"]
+        AFWEB["airflow-webserver\n:8081"]
+        AFSCHED["airflow-scheduler"]
+    end
+
     APP --> PGB1 & PGB2
     PGB1 & PGB2 -->|transaction pooling| PGHA
     PG1 -->|WAL| PG2 & PG3
@@ -164,6 +202,11 @@ graph LR
     PROM -->|scrape| PGE & PGBE
     GRAF -->|PromQL| PROM
     DASH -. "proxy /api/*" .-> PGHA & ETCD & VAULT
+    LB -->|creates airflow DB+user| PGB1
+    AFINIT -->|airflow db migrate\nvia session pool| PGB1
+    AFWEB -->|metadata DB\nairflow session pool| PGB1
+    AFSCHED -->|metadata DB\nairflow session pool| PGB1
+    AFWEB & AFSCHED -->|ETL DAGs\ntransaction pool| PGB1 & PGB2
 ```
 
 All containers share `pg-ha-network` (Docker bridge).
@@ -181,6 +224,8 @@ All containers share `pg-ha-network` (Docker bridge).
 | `pgbouncer-health-check.sh` | `nc -z` connectivity checks for all nodes |
 | `datadog-health-check.sh` | Verifies Datadog Agent, checks integration status, Patroni/etcd/Vault reachability |
 | `monitoring-health-check.sh` | 7-section Prometheus + Grafana + nginx health check; flags `--targets`, `--metrics`, `--dashboard` |
+| `airflow-entrypoint.sh` | Airflow container entrypoint: `init` (db migrate + admin user), `webserver`, `scheduler` modes |
+| `verify-airflow.sh` | 8-section Airflow verification: containers, API, DAGs, PgBouncer pool, schema, admin user; `--quick` flag |
 
 ### Liquibase Changelog Structure
 ```
@@ -189,10 +234,27 @@ liquibase/changelog/
 ├── 01-init-schema.yml         # audit schema + audit_trigger_func()
 ├── 02-add-extensions.yml      # pgvector, pg_stat_statements, pgcrypto, uuid-ossp
 ├── 03-create-tables.yml       # audit_log, users, items (vector), sessions + indexes
-└── 04-add-products.yml        # products table with audit trigger (e-commerce catalog)
+├── 04-add-products.yml        # products table with audit trigger (e-commerce catalog)
+└── 05-setup-airflow-db.yml    # airflow_user role + airflow DB + CONNECT grant
 ```
 
 All changesets have rollback blocks — use `rollback-count N` to revert.
+
+**Liquibase re-run**: Migrations are idempotent — Liquibase tracks applied changesets in `databasechangelog`. To re-apply after schema drift or a clean redeploy:
+
+```bash
+terraform apply -replace=docker_container.liquibase[0] -var-file=ha-test.tfvars -auto-approve
+```
+
+### Airflow DAG Structure
+
+```text
+dags/
+├── postgres_etl_example.py      # Extract audit_log → transform → load summary table
+└── postgres_ha_health_check.py  # Poll Patroni /leader + /cluster + PgBouncer SHOW POOLS
+```
+
+Both DAGs use connection ID `postgres_ha` (injected via `AIRFLOW_CONN_POSTGRES_HA` env var pointing to PgBouncer transaction pool).
 
 **Liquibase 5.x format requirements**: All changelog YAML files must use list syntax — `- changeSet:` (with dash prefix), NOT `changeSet:` as a map key. Multi-statement SQL (e.g., PL/pgSQL functions with `$$`) must include `splitStatements: false` on the `sql` change to prevent semicolon-splitting.
 
@@ -204,13 +266,13 @@ All changesets have rollback blocks — use `rollback-count N` to revert.
 
 ## Important Patterns
 
-**Feature flags in variables-ha.tf**: `liquibase_enabled`, `vault_enabled`, `pgbouncer_enabled`, `pgbouncer_replicas`, `datadog_enabled`, `monitoring_enabled`, `dashboard_enabled` — toggle features without touching resource definitions.
+**Feature flags in variables-ha.tf**: `liquibase_enabled`, `vault_enabled`, `pgbouncer_enabled`, `pgbouncer_replicas`, `datadog_enabled`, `monitoring_enabled`, `dashboard_enabled`, `airflow_enabled` — toggle features without touching resource definitions.
 
 **Secrets flow**: Vault is optional. When disabled, passwords come from Terraform-generated values passed as environment variables. When enabled, containers call the Vault HTTP API at startup to fetch/rotate credentials.
 
 **Liquibase HA-awareness**: `liquibase-entrypoint.sh` connects to the `postgres_liquibase` PgBouncer session pool (which routes to pg-node-1 only) and checks `pg_is_in_recovery()` returns `f` before running migrations. This avoids the round-robin `postgres` pool which could route to a replica.
 
-**PgBouncer userlist**: Contains `pgadmin`, `postgres`, and `replicator`. The `postgres` superuser is included so that Liquibase (which needs DDL privileges) can authenticate. Generated by `entrypoint-pgbouncer.sh` at container startup. The `postgres_liquibase` pool uses `pool_mode=session` (required for advisory locks).
+**PgBouncer userlist**: Contains `pgadmin`, `postgres`, `replicator`, and optionally `airflow_user`. The `postgres` superuser is included so that Liquibase (which needs DDL privileges) can authenticate. `airflow_user` is added by `entrypoint-pgbouncer.sh` when `AIRFLOW_DB_PASSWORD` env var is set (injected by Terraform when `airflow_enabled = true`). The `postgres_liquibase` and `airflow` pools use `pool_mode=session` (required for advisory locks).
 
 **Patroni YAML passwords**: Rendered at `terraform apply` time via `local_file` resources and the `patroni/patroni-node.yml.tpl` template. Files are written to `patroni/rendered/patroni-node-N.yml` (gitignored). Do NOT commit these files.
 
@@ -225,3 +287,11 @@ All changesets have rollback blocks — use `rollback-count N` to revert.
 **nginx dashboard template escaping**: `dashboard/nginx.conf.tpl` uses `resolver 127.0.0.11` and `set $var <host>:<port>` for lazy DNS resolution (so nginx starts even when backend containers are not yet up). Terraform only escapes `${...}` interpolations; plain `$var` passes through unchanged to nginx.
 
 **Grafana provisioning**: Dashboards and datasource are auto-provisioned via bind-mounted files in `monitoring/grafana/provisioning/` (no manual Grafana UI setup needed). Dashboard JSON uses `byRegexp` matchers (not `byNamePattern`, which was removed in Grafana 11). Checkpoint panel queries use `rate(...) or rate(...)` PromQL for PG ≤16 / PG 17+ cross-version compatibility.
+
+**Airflow dependency chain**: `pg_nodes → pgbouncer → liquibase` (creates `airflow_user` role + `airflow` DB via changesets in `05-setup-airflow-db.yml`) `→ airflow_init` (runs `airflow db migrate` + creates admin user) `→ airflow_webserver / airflow_scheduler`. Airflow must wait for Liquibase because the `airflow` database does not exist until Liquibase applies changeset `05-create-airflow-database`.
+
+**Airflow Fernet key**: Generated via `random_id` with `byte_length = 32`; the `b64_url` attribute gives URL-safe base64 of 32 random bytes — exactly what Fernet requires. Stored in Terraform state; re-deploying from scratch regenerates the key, which invalidates any encrypted Airflow connections/variables stored in the metadata DB.
+
+**Airflow PgBouncer pool**: Docker network aliases (`aliases = ["pgbouncer"]`) are the correct Docker-native way to give both `pgbouncer-1` and `pgbouncer-2` a shared virtual hostname. Docker DNS round-robins between them. For Airflow's metadata DB the pool is `session` mode (not `transaction`) to support SQLAlchemy's connection hold pattern during `airflow db migrate` and scheduler heartbeats.
+
+**Liquibase re-runnable**: `terraform apply -replace=docker_container.liquibase[0]` forces a fresh one-shot container. Liquibase is idempotent — it only applies changesets not yet in `databasechangelog`, so re-running is always safe.
