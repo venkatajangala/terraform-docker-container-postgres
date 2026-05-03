@@ -50,7 +50,11 @@ docker image prune    # remove dangling images
 
 ### 2. Vault Unhealthy / Sealed After Restart
 
-HashiCorp Vault in Raft server mode is initialized once. If the `vault-data` volume is recreated, initialization must run again (re-run `vault-bootstrap.sh` or `terraform apply`).
+HashiCorp Vault in Raft server mode is initialized once. If the `vault-data` volume is recreated, initialization must run again.
+
+**After `terraform destroy` + `terraform apply` (full redeploy):** `null_resource.vault_init` now tracks the volume ID via a `vault_volume_id` trigger — it automatically re-runs `vault-bootstrap.sh` whenever the `vault-data` volume is recreated. No manual steps required.
+
+**After a container restart only (volume intact):** Vault restarts sealed. `vault-bootstrap.sh` re-unseals from the saved keys in `.vault-bootstrap/vault-init.json`.
 
 **Check health:**
 ```bash
@@ -58,13 +62,13 @@ curl -s http://localhost:8200/v1/sys/health | python3 -m json.tool
 # sealed: true means Vault is sealed and needs to be unsealed or re-initialized
 ```
 
-**Re-run bootstrap (dev):**
+**Re-run bootstrap manually (if needed):**
 ```bash
-# vault-bootstrap.sh initializes, unseals (dev), creates policy + AppRole, seeds KV
-bash vault-bootstrap.sh
+# vault-bootstrap.sh checks Vault API — skips init if already initialized, re-unseals if sealed
+VAULT_ADDR=http://localhost:8200 bash vault-bootstrap.sh
 ```
 
-**Or re-apply Terraform** (runs `null_resource.vault_init` again):
+**Or re-apply Terraform** (triggers `null_resource.vault_init` via volume ID change):
 ```bash
 terraform apply -var-file="ha-test.tfvars" -auto-approve
 ```

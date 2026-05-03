@@ -16,6 +16,8 @@ resource "null_resource" "vault_init" {
     vault_enabled = tostring(var.vault_enabled)
     # Changing passwords or the pg user forces a re-seed of KV secrets
     seed = "${var.postgres_user}:${var.password_length}:${var.generate_new_passwords}"
+    # Re-run whenever the vault-data volume is recreated (e.g. after terraform destroy + apply)
+    vault_volume_id = docker_volume.vault_data[0].id
   }
 }
 

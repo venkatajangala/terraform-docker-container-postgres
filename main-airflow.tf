@@ -66,6 +66,8 @@ locals {
     "AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True",
     "AIRFLOW__WEBSERVER__BASE_URL=http://localhost:${var.airflow_port}",
     "AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True",
+    # Enable both session and basic auth for the REST API so curl/scripts work.
+    "AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.session,airflow.api.auth.backend.basic_auth",
     # PgBouncer admin console — used by the health-check DAG for SHOW POOLS.
     # Connects to the 'pgbouncer' virtual database (not a real PostgreSQL DB).
     "AIRFLOW_CONN_PGBOUNCER_ADMIN=postgresql://pgadmin:${local.postgres_password}@pgbouncer-1:6432/pgbouncer",

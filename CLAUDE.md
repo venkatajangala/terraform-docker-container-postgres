@@ -294,4 +294,8 @@ Both DAGs use connection ID `postgres_ha` (injected via `AIRFLOW_CONN_POSTGRES_H
 
 **Airflow PgBouncer pool**: Docker network aliases (`aliases = ["pgbouncer"]`) are the correct Docker-native way to give both `pgbouncer-1` and `pgbouncer-2` a shared virtual hostname. Docker DNS round-robins between them. For Airflow's metadata DB the pool is `session` mode (not `transaction`) to support SQLAlchemy's connection hold pattern during `airflow db migrate` and scheduler heartbeats.
 
+**Airflow REST API auth**: `AIRFLOW__API__AUTH_BACKENDS` is set to `airflow.api.auth.backend.session,airflow.api.auth.backend.basic_auth` in `airflow_common_env` (all three containers). Without `basic_auth`, curl calls with `-u user:pass` return HTTP 403 even for valid credentials — the webserver accepts the auth but the API layer rejects it.
+
+**Vault vault_init re-run after destroy**: `null_resource.vault_init` includes `vault_volume_id = docker_volume.vault_data[0].id` in its triggers. This ensures `vault-bootstrap.sh` always re-runs whenever the `vault-data` volume is recreated (e.g., after `terraform destroy` + `apply`). Without this trigger, the null_resource would be skipped (triggers unchanged) leaving Vault uninitialized. The bootstrap script itself is idempotent — it checks `/v1/sys/init` via the API, not the presence of `vault-init.json`.
+
 **Liquibase re-runnable**: `terraform apply -replace=docker_container.liquibase[0]` forces a fresh one-shot container. Liquibase is idempotent — it only applies changesets not yet in `databasechangelog`, so re-running is always safe.

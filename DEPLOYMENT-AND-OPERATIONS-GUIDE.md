@@ -1034,6 +1034,27 @@ Both DAGs use connection ID `postgres_ha`, which points directly to the Patroni 
 
 This ensures metadata writes and ETL operations always reach the writable primary, even after a failover (the entrypoint re-discovers on restart).
 
+### REST API Authentication
+
+Both session auth (browser) and HTTP basic auth (curl/scripts) are enabled via:
+
+```text
+AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.session,airflow.api.auth.backend.basic_auth
+```
+
+Use credentials from `terraform output airflow_credentials`:
+
+```bash
+# List DAGs
+curl -s http://localhost:8081/api/v1/dags \
+  -u "admin:<password>" | python3 -m json.tool
+
+# Trigger a DAG
+curl -s -X POST http://localhost:8081/api/v1/dags/postgres_etl_example/dagRuns \
+  -u "admin:<password>" -H "Content-Type: application/json" \
+  -d '{"logical_date": null}'
+```
+
 ### Dependency Chain
 
 ```text

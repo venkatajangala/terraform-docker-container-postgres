@@ -126,6 +126,7 @@ unset PGPASSWORD
   - `postgres_ha_health_check` — poll Patroni REST API + PgBouncer `SHOW POOLS` every 15 min
 - **Proper Fernet key** — generated from 32 cryptographic random bytes via `random_id.b64_url`
 - **Auto admin user** — created during `airflow-init` one-shot container (`airflow db migrate` + `airflow users create`)
+- **REST API** — both session (browser) and HTTP basic auth (curl/scripts) enabled via `AIRFLOW__API__AUTH_BACKENDS`
 - Toggle with `airflow_enabled = true` in `ha-test.tfvars`; see credentials with `terraform output airflow_credentials`
 
 ## 📊 System Architecture
