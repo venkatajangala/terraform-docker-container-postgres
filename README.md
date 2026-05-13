@@ -619,7 +619,7 @@ See [PgBouncer Authentication](docs/pgbouncer/AUTHENTICATION.md) or [Troubleshoo
 - Terraform IaC fully validated
 - Deploy with confidence
 
-**Last Updated**: 2026-04-15  
+**Last Updated**: 2026-05-13  
 **Version**: PostgreSQL 18.2 + Patroni 3.3.8 + etcd 3.5.0 + PgBouncer 1.15 + Datadog Agent 7
 
 ---

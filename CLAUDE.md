@@ -15,6 +15,14 @@ Production-ready **PostgreSQL 18 High Availability cluster** managed entirely wi
 - nginx status dashboard for live cluster overview (optional, toggle via `dashboard_enabled`)
 - **Apache Airflow 2.x ETL platform** (optional, toggle via `airflow_enabled`) — connects to PostgreSQL HA via PgBouncer, stores metadata in a dedicated `airflow` DB, ships with example DAGs
 
+## Repo Setup (one-time per clone)
+
+```bash
+bash scripts/install-hooks.sh   # enables .githooks/pre-commit
+```
+
+The pre-commit hook auto-updates `**Last Updated**: YYYY-MM-DD` in `README.md` whenever a commit touches code/config files (`*.tf`, `*.sh`, `*.tpl`, `*.py`, `*.yml`, `*.hcl`, `*.md`, `Dockerfile.*`). Skip with `git commit --no-verify` when you don't want the bump.
+
 ## Key Commands
 
 ### Deploy / Destroy
@@ -226,6 +234,8 @@ All containers share `pg-ha-network` (Docker bridge).
 | `monitoring-health-check.sh` | 7-section Prometheus + Grafana + nginx health check; flags `--targets`, `--metrics`, `--dashboard` |
 | `airflow-entrypoint.sh` | Airflow container entrypoint: `init` (db migrate + admin user), `webserver`, `scheduler` modes |
 | `verify-airflow.sh` | 8-section Airflow verification: containers, API, DAGs, PgBouncer pool, schema, admin user; `--quick` flag |
+| `scripts/install-hooks.sh` | One-shot: sets `core.hooksPath = .githooks` so the pre-commit hook is active for this clone |
+| `.githooks/pre-commit` | Auto-bumps `**Last Updated**:` in `README.md` when any staged file matches `*.tf`, `*.sh`, `*.tpl`, `*.py`, `*.yml`, `*.md`, `*.hcl`, or `Dockerfile.*` |
 
 ### Liquibase Changelog Structure
 ```
