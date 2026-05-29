@@ -78,12 +78,9 @@ locals {
 
 resource "docker_image" "airflow_custom" {
   count = var.airflow_enabled ? 1 : 0
-  name  = "custom-airflow-etl:latest"
-  build {
-    context    = "."
-    dockerfile = "Dockerfile.airflow"
-    no_cache   = false
-  }
+  name         = "custom-airflow-etl:latest"
+  keep_locally = true # built out-of-band by terraform_data.build_airflow_custom (see main-image-builds.tf)
+  depends_on   = [terraform_data.build_airflow_custom]
 }
 
 # ── DAGs directory (host bind-mount) ─────────────────────────────────────────

@@ -52,7 +52,9 @@ docker image prune    # remove dangling images
 
 HashiCorp Vault in Raft server mode is initialized once. If the `vault-data` volume is recreated, initialization must run again.
 
-**After `terraform destroy` + `terraform apply` (full redeploy):** `null_resource.vault_init` now tracks the volume ID via a `vault_volume_id` trigger — it automatically re-runs `vault-bootstrap.sh` whenever the `vault-data` volume is recreated. No manual steps required.
+**After `terraform destroy` + `terraform apply` (full redeploy):** `null_resource.vault_init` now tracks the volume ID via a `vault_volume_id` trigger — it automatically re-runs `vault-bootstrap.sh` whenever the `vault-data` volume is recreated. On destroy, `null_resource.vault_bootstrap_cleanup` removes the stale `.vault-bootstrap/` secrets (the old root token + unseal keys are dead once `vault-data` is gone), and they are regenerated on the next apply. No manual steps required.
+
+> **`terraform destroy` previously failed** with `conflict: unable to delete hashicorp/vault:1.21.2 (must be forced)` because `docker_image.vault` and `docker_image.vault_agent` share the same image. Both now set `keep_locally = true`, which skips destroy-time image removal and fixes it. See [Troubleshooting → Terraform Destroy Fails](03-TROUBLESHOOTING.md#terraform-destroy-fails-image-conflict).
 
 **After a container restart only (volume intact):** Vault restarts sealed. `vault-bootstrap.sh` re-unseals from the saved keys in `.vault-bootstrap/vault-init.json`.
 

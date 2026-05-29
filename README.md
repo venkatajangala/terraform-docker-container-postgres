@@ -415,6 +415,7 @@ docker start pg-node-1
 │   └── reference/                   # Technical reference
 │
 ├── Terraform files                  ← Infrastructure as code
+│   ├── main-image-builds.tf         # Builds the 4 local images via buildx CLI (terraform_data)
 │   ├── main-ha.tf                   # Core infra: network, etcd, pg nodes, pgbouncer
 │   ├── main-vault.tf                # Vault server container + volume + perms
 │   ├── main-vault-init.tf           # vault-bootstrap.sh trigger (null_resource)
@@ -439,9 +440,11 @@ docker start pg-node-1
 │   │   └── patroni-node-3.yml
 │   └── pgbackrest/                  # Backup configuration
 │
-├── Docker files
+├── Docker files                     # Built by main-image-builds.tf via `docker buildx build`
 │   ├── Dockerfile.patroni           # PostgreSQL + Patroni image
-│   └── Dockerfile.pgbouncer         # PgBouncer image
+│   ├── Dockerfile.pgbouncer         # PgBouncer image
+│   ├── Dockerfile.liquibase         # Liquibase migrations image
+│   └── Dockerfile.airflow           # Apache Airflow ETL image
 │
 ├── Secrets bootstrap
 │   ├── vault-bootstrap.sh           # Init, unseal, AppRole, KV seed
@@ -600,6 +603,14 @@ psql -h localhost -p 5432 -U pgadmin -d postgres
 curl -s http://localhost:8008/leader | python3 -m json.tool
 ```
 
+### `terraform apply` image build fails (`invalid tar header` / hangs)
+
+On Docker Desktop 4.7x / Docker 28+ the kreuzwerker provider's in-process `build {}` is broken. This repo builds images via the **buildx CLI** in `main-image-builds.tf` instead, so a fresh `terraform init -upgrade && terraform apply` should just work. If you still see it, confirm `docker buildx version` works. See [Troubleshooting → Docker & Terraform Issues](docs/guides/03-TROUBLESHOOTING.md#image-build-fails-invalid-tar-header-or-hangs).
+
+### `terraform destroy` fails with Vault image conflict
+
+`conflict: unable to delete hashicorp/vault:1.21.2 (must be forced)` is fixed — `docker_image.vault` and `docker_image.vault_agent` now set `keep_locally = true`. See [Troubleshooting → Terraform Destroy Fails](docs/guides/03-TROUBLESHOOTING.md#terraform-destroy-fails-image-conflict).
+
 ### Performance issues
 See [PgBouncer Authentication](docs/pgbouncer/AUTHENTICATION.md) or [Troubleshooting](docs/guides/03-TROUBLESHOOTING.md)
 
@@ -619,7 +630,7 @@ See [PgBouncer Authentication](docs/pgbouncer/AUTHENTICATION.md) or [Troubleshoo
 - Terraform IaC fully validated
 - Deploy with confidence
 
-**Last Updated**: 2026-05-13  
+**Last Updated**: 2026-05-29  
 **Version**: PostgreSQL 18.2 + Patroni 3.3.8 + etcd 3.5.0 + PgBouncer 1.15 + Datadog Agent 7
 
 ---

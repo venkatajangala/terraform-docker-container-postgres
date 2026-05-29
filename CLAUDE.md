@@ -137,6 +137,7 @@ open http://localhost:9090   # Prometheus
 ## Architecture
 
 ### Terraform Files
+- **main-image-builds.tf** — `terraform_data` resources that build the 4 local images (`postgres_patroni`, `pgbouncer`, `liquibase`, `airflow_custom`) via the **buildx CLI** (`local-exec`). The kreuzwerker provider's in-process `build {}` block is broken on Docker 28+/Desktop 4.7x (see Important Patterns); the `docker_image.*` resources only *reference* the resulting local tags.
 - **main-ha.tf** — Core infrastructure: Docker network, etcd, 3 PostgreSQL nodes, PgBouncer (×2), Vault stack
 - **main-vault-init.tf** — Vault container, volume, `null_resource.vault_init` bootstrap trigger
 - **main-vault-agent.tf** — Vault Agent sidecar container, `vault-agent-secrets` volume, permission fix
@@ -144,7 +145,7 @@ open http://localhost:9090   # Prometheus
 - **main-datadog.tf** — Datadog Agent container, `datadog-data` volume, rendered integration configs
 - **main-dashboard.tf** — nginx `pg-dashboard` container (port 5005); bind-mounts `index.html` + rendered `nginx.conf`
 - **main-monitoring.tf** — Prometheus, Grafana, `postgres-exporter-{1,2,3}`, `pgbouncer-exporter-{1,2}` containers; Prometheus config rendered via `local_file`
-- **main-airflow.tf** — Airflow image build, `airflow-init` (one-shot: db migrate + admin user), `airflow-webserver` (:8081), `airflow-scheduler`; Fernet key via `random_id.b64_url`
+- **main-airflow.tf** — `airflow-init` (one-shot: db migrate + admin user), `airflow-webserver` (:8081), `airflow-scheduler`; Fernet key via `random_id.b64_url`. The custom image is built in `main-image-builds.tf` (buildx) and referenced here via `docker_image.airflow_custom`.
 - **variables-ha.tf** — All configuration knobs (passwords, pool sizes, memory limits, feature flags)
 - **outputs-ha.tf** — Connection strings, endpoints, generated credentials
 
@@ -309,3 +310,9 @@ Both DAGs use connection ID `postgres_ha` (injected via `AIRFLOW_CONN_POSTGRES_H
 **Vault vault_init re-run after destroy**: `null_resource.vault_init` includes `vault_volume_id = docker_volume.vault_data[0].id` in its triggers. This ensures `vault-bootstrap.sh` always re-runs whenever the `vault-data` volume is recreated (e.g., after `terraform destroy` + `apply`). Without this trigger, the null_resource would be skipped (triggers unchanged) leaving Vault uninitialized. The bootstrap script itself is idempotent — it checks `/v1/sys/init` via the API, not the presence of `vault-init.json`.
 
 **Liquibase re-runnable**: `terraform apply -replace=docker_container.liquibase[0]` forces a fresh one-shot container. Liquibase is idempotent — it only applies changesets not yet in `databasechangelog`, so re-running is always safe.
+
+**Image builds via buildx CLI (NOT the provider `build {}` block)**: On Docker Engine 28+/Docker Desktop 4.7x the kreuzwerker/docker provider's in-process build is broken — the legacy builder (`build.version="1"`, the default) fails with `archive/tar: invalid tar header` / `unpigz: invalid deflate data` and can saturate the daemon (`context deadline exceeded`), while BuildKit (`build.version="2"`) hangs indefinitely. `use_legacy_builder` is NOT a real provider option and upgrading the provider does not help. The fix (`main-image-builds.tf`): a `terraform_data` resource per local image runs `docker buildx build --load -t <tag> -f <dockerfile> .` via `local-exec`, with `triggers_replace` on the Dockerfile + every file it COPYs. The `docker_image.{postgres_patroni,pgbouncer,liquibase,airflow_custom}` resources carry only `name` + `keep_locally = true` + `depends_on` the builder (no `build {}`), so all existing `docker_image.<x>.image_id` references stay valid. **Caveat**: editing a Dockerfile needs *two* applies to reach containers — `docker_image` refreshes from the OLD local image at plan time, before the rebuild runs — or use `-replace` on the container.
+
+**Vault shared-image destroy fix (`keep_locally`)**: `docker_image.vault` (main-vault.tf) and `docker_image.vault_agent` (main-vault-agent.tf) both manage the SAME image `hashicorp/vault:1.21.2`. On `terraform destroy` they sit on separate dependency paths, so one resource's image removal races the other feature's container teardown and fails with `conflict: unable to delete hashicorp/vault:1.21.2 (must be forced)`, aborting the destroy and leaving a dangling `docker_image.vault_agent[0]` in state. Both resources set `keep_locally = true` so the provider skips destroy-time image removal (and skips re-pull on redeploy). General rule: any two `docker_image` resources pointing at one image name need `keep_locally = true`.
+
+**Vault bootstrap cleanup on destroy**: `null_resource.vault_bootstrap_cleanup` (main-vault-init.tf) has a `when = destroy` `local-exec` that removes `.vault-bootstrap/{vault-init.json,approle_*.json,role_id,secret_id}`. After destroy the `vault-data` volume is gone, so these hold a dead root token + unseal keys — leaving them is stale and a security-hygiene problem. They are regenerated by `vault-bootstrap.sh` on the next apply.

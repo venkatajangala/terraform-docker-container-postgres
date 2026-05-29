@@ -171,6 +171,12 @@ terraform destroy -auto-approve -parallelism=2  # Sequential destruction
 
 **Warning:** `destroy` deletes all managed resources. Data loss is permanent.
 
+> **Note:** The locally-built and Vault images use `keep_locally = true`, so `destroy` leaves
+> them on disk (faster redeploys, and it avoids the `conflict: unable to delete
+> hashicorp/vault:1.21.2 (must be forced)` race that previously aborted destroy). The
+> `.vault-bootstrap/` secrets are removed on destroy by `null_resource.vault_bootstrap_cleanup`.
+> To reclaim image disk space manually: `docker image prune -a`.
+
 ---
 
 ## State Management
@@ -259,6 +265,16 @@ terraform apply -replace='docker_container.pg_node["1"]' -auto-approve
 terraform refresh
 terraform apply -target='docker_container.pg_node["1"]' -auto-approve
 ```
+
+> **Picking up a Dockerfile change:** images are built out-of-band by buildx
+> (`main-image-builds.tf`), and `docker_image` reads the *old* local image at plan time,
+> so a Dockerfile edit needs two applies to reach a running container. Force it in one
+> step by replacing the container after the rebuild:
+>
+> ```bash
+> terraform apply -var-file="ha-test.tfvars" -auto-approve            # rebuilds the image
+> terraform apply -replace='docker_container.pgbouncer["1"]' -var-file="ha-test.tfvars" -auto-approve
+> ```
 
 ---
 

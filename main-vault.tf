@@ -10,6 +10,12 @@
 resource "docker_image" "vault" {
   count = var.vault_enabled ? 1 : 0
   name  = "hashicorp/vault:1.21.2"
+  # Shared with docker_image.vault_agent (same image). Two docker_image
+  # resources managing one image race on destroy: removing the image while the
+  # other feature's container still references it errors with
+  # "conflict: unable to delete ... (must be forced)". keep_locally skips the
+  # destroy-time image removal entirely (and avoids re-pulling on redeploy).
+  keep_locally = true
 }
 
 resource "docker_volume" "vault_data" {

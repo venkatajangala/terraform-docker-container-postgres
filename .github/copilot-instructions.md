@@ -80,6 +80,7 @@ liquibase --changeLogFile="liquibase/changelog/db.changelog-master.yml" rollback
 ## High-Level Architecture
 
 ### Infrastructure as Code (Terraform)
+- **main-image-builds.tf** — Builds the 4 local images (`postgres_patroni`, `pgbouncer`, `liquibase`, `airflow_custom`) via the buildx CLI (`terraform_data` + `local-exec`); the provider's in-process `build {}` is broken on Docker 28+/Desktop 4.7x
 - **main-ha.tf** — Core infrastructure: Docker network, etcd, 3 PostgreSQL nodes, 2 PgBouncer instances, optional Vault stack
 - **main-liquibase.tf** — One-shot Liquibase container that waits for primary election
 - **main-vault-init.tf** — Vault container, volume, `null_resource.vault_init` bootstrap trigger
@@ -197,6 +198,12 @@ This prevents migrations from running on replicas or before cluster stability.
 - PgBouncer: `pgbouncer-1`, `pgbouncer-2`
 - etcd: `etcd`
 - Vault (if enabled): `vault`, `vault-agent` (sidecar, if vault_agent_enabled)
+
+### Image Builds (buildx CLI, NOT the provider `build {}` block)
+On Docker 28+/Docker Desktop 4.7x the kreuzwerker/docker provider's in-process build is broken — the legacy builder fails with `invalid tar header` / `invalid deflate data` and BuildKit (`build.version="2"`) hangs. `use_legacy_builder` is not a real option. `main-image-builds.tf` builds each local image with `docker buildx build --load` inside a `terraform_data` resource (triggered by hashes of the Dockerfile + COPYed files); the `docker_image.*` resources carry only `name` + `keep_locally = true` + `depends_on` the builder. Editing a Dockerfile takes two applies to reach containers (or `-replace` the container).
+
+### Vault Destroy & Shared Images
+`docker_image.vault` and `docker_image.vault_agent` both manage `hashicorp/vault:1.21.2`. Without `keep_locally = true`, `terraform destroy` fails with `conflict: unable to delete hashicorp/vault:1.21.2 (must be forced)` because one resource removes the image while the other's container is still alive. Both set `keep_locally = true`. `null_resource.vault_bootstrap_cleanup` removes the stale `.vault-bootstrap/` secrets on destroy. Rule: two `docker_image` resources sharing one image name always need `keep_locally = true`.
 
 ### Liquibase YAML Format Requirements
 Liquibase 5.x requires:

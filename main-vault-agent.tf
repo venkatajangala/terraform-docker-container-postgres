@@ -6,6 +6,10 @@
 resource "docker_image" "vault_agent" {
   count = var.vault_agent_enabled ? 1 : 0
   name  = "hashicorp/vault:1.21.2"
+  # Same image as docker_image.vault — keep_locally avoids the destroy-time
+  # "conflict: unable to delete hashicorp/vault (must be forced)" race when one
+  # resource removes the image while the other's container still uses it.
+  keep_locally = true
 }
 
 resource "docker_container" "vault_agent" {

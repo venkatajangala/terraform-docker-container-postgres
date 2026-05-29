@@ -377,6 +377,61 @@ terraform apply -var-file="ha-test.tfvars" -auto-approve
 docker ps -a | grep -v running
 ```
 
+### Image Build Fails (invalid tar header or hangs)
+
+**Symptom**: `terraform apply` fails while creating a `docker_image` with one of:
+
+```text
+Error: Error running legacy build: failed to read dockerfile: archive/tar: invalid tar header
+Error: Error running legacy build: failed to read dockerfile: ... unpigz: ... invalid deflate data
+Error: Unable to read Docker image into resource: ... context deadline exceeded
+```
+
+…or the build hangs for many minutes on a tiny image.
+
+**Cause**: On Docker Engine 28+/Docker Desktop 4.7x the kreuzwerker/docker provider's **in-process `build {}` block** is broken — its legacy builder corrupts the context tar stream, and its BuildKit path (`build.version = "2"`) hangs. This is a provider/daemon incompatibility, not a problem with your Dockerfiles. Note: `use_legacy_builder` is **not** a real provider option, and upgrading the provider does not fix it.
+
+**Fix (already in this repo)**: the 4 local images are built with the Docker **buildx CLI** in `main-image-builds.tf` (`terraform_data` + `local-exec`), and the `docker_image.*` resources only reference the resulting local tags. A normal apply just works:
+
+```bash
+terraform init -upgrade
+terraform apply -var-file="ha-test.tfvars" -auto-approve
+```
+
+**Verify buildx is available** (the fix depends on it):
+
+```bash
+docker buildx version          # must succeed
+docker buildx build --load -t pgbouncer:ha -f Dockerfile.pgbouncer .   # should build in seconds
+```
+
+**Note**: editing a Dockerfile takes effect on the *next* container apply — `docker_image` reads the old local image at plan time, before the rebuild runs. Force an immediate refresh with `terraform apply -replace=docker_container.<name>` (e.g. `docker_container.pgbouncer["1"]`).
+
+### Terraform Destroy Fails (image conflict)
+
+**Symptom**: `terraform destroy` aborts with:
+
+```text
+Error: Unable to remove Docker image: Error response from daemon:
+conflict: unable to delete hashicorp/vault:1.21.2 (must be forced)
+ - container <id> is using its referenced image
+```
+
+A dangling `docker_image.vault_agent[0]` is left in state and not all resources are cleaned up.
+
+**Cause**: `docker_image.vault` and `docker_image.vault_agent` manage the **same** image (`hashicorp/vault:1.21.2`). During destroy they sit on separate dependency paths, so one resource tries to delete the image while the other feature's container is still being torn down — the daemon refuses to remove an image a live container references.
+
+**Fix (already in this repo)**: both resources set `keep_locally = true`, so the provider skips destroy-time image removal entirely (and skips re-pulling on the next apply). Destroy now completes with `Destroy complete! Resources: N destroyed.` and no orphan containers/volumes/network.
+
+**Recover from a half-destroyed state** (if you hit this before the fix):
+
+```bash
+git pull        # get the keep_locally fix
+terraform destroy -var-file="ha-test.tfvars" -auto-approve   # clears the dangling resource cleanly
+```
+
+A destroy-time cleanup (`null_resource.vault_bootstrap_cleanup`) also removes the stale `.vault-bootstrap/` secrets (root token + unseal keys for the now-deleted Vault); they are regenerated on the next apply.
+
 ### Container Won't Start
 
 **Symptom**: `docker ps` doesn't show container
@@ -740,6 +795,8 @@ tar czf diagnostics.tar.gz diagnostics/
 
 | Error | Meaning | Fix |
 | ----- | ------- | --- |
+| `Error running legacy build: ... invalid tar header` / `invalid deflate data` | Provider `build {}` broken on Docker 28+ | Already fixed — images build via buildx in `main-image-builds.tf`; ensure `docker buildx version` works ([details](#image-build-fails-invalid-tar-header-or-hangs)) |
+| `conflict: unable to delete hashicorp/vault:1.21.2 (must be forced)` | Shared Vault image removed mid-destroy | Already fixed — `keep_locally = true` on both vault image resources ([details](#terraform-destroy-fails-image-conflict)) |
 | `FATAL: remaining connection slots reserved` | Pool exhausted | Increase `pgbouncer_default_pool_size` in `ha-test.tfvars` |
 | `could not connect to server` | Network/port issue | Check ports exposed with `docker port` |
 | `password authentication failed` | Password out of sync | Run `terraform output -json generated_passwords`; `ALTER USER pgadmin PASSWORD '...'` on primary |

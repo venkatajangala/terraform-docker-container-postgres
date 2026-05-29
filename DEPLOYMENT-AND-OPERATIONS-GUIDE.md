@@ -62,51 +62,43 @@ cd /path/to/your/postgres-ha-cluster
 ls -la  # Verify all files present
 ```
 
-### Step 2: Build Docker Images
+### Step 2: Docker Images (built automatically)
 
-All three optimized images must be built before deployment.
+**You do not need to build images manually.** `terraform apply` builds the four local
+images for you via `main-image-builds.tf`, which calls the Docker **buildx CLI**
+(`docker buildx build --load …`) from `terraform_data` resources:
 
-#### Build Patroni Image (Multi-stage)
-```bash
-docker build -f Dockerfile.patroni -t postgres-patroni:18-pgvector .
-```
+| Image | Dockerfile | Approx size |
+| --- | --- | --- |
+| `postgres-patroni:18-pgvector` | `Dockerfile.patroni` | ~790 MB |
+| `pgbouncer:ha` | `Dockerfile.pgbouncer` | ~35 MB |
+| `liquibase:ha` | `Dockerfile.liquibase` | ~530 MB |
+| `custom-airflow-etl:latest` | `Dockerfile.airflow` | ~4 GB (Torch + sentence-transformers) |
 
-Expected output:
-```
-Successfully tagged postgres-patroni:18-pgvector
-Image size: ~850MB (optimized from 1.2GB)
-```
+> **Why not the provider's `build {}` block?** On Docker Engine 28+/Docker Desktop 4.7x
+> the kreuzwerker/docker provider's in-process build is broken (`invalid tar header` on
+> the legacy builder; indefinite hangs on BuildKit). Delegating to the buildx CLI is the
+> reliable path. The `docker_image.*` resources just reference the resulting local tags
+> with `keep_locally = true`. See
+> [Troubleshooting → Image Build Fails](docs/guides/03-TROUBLESHOOTING.md#image-build-fails-invalid-tar-header-or-hangs).
 
-#### Build PgBouncer Image (Alpine)
-```bash
-docker build -f Dockerfile.pgbouncer -t pgbouncer:ha .
-```
+Vault uses the **official** `hashicorp/vault:1.21.2` image (Raft server mode) — there is
+no `Dockerfile.vault`. It is pulled automatically.
 
-Expected output:
-```
-Successfully tagged pgbouncer:ha
-Image size: ~35MB (optimized from 145MB)
-```
+#### (Optional) Pre-build manually
 
-#### Vault (Dev Raft) Image
-Use the official HashiCorp Vault image for dev or build a custom image if you need additional tools.
+To warm the cache or debug a Dockerfile, build with buildx (NOT plain `docker build`):
 
 ```bash
-# Option A: Use official Vault image (recommended for dev)
-docker pull vault:1.14.1
-
-# Option B: Build a custom Vault image (if you maintain a Dockerfile.vault)
-docker build -f Dockerfile.vault -t vault:custom .
-```
-
-Expected output:
-```
-Successfully pulled vault:1.14.1
+docker buildx build --load -t postgres-patroni:18-pgvector -f Dockerfile.patroni .
+docker buildx build --load -t pgbouncer:ha                -f Dockerfile.pgbouncer .
+docker buildx build --load -t liquibase:ha                -f Dockerfile.liquibase .
+docker buildx build --load -t custom-airflow-etl:latest   -f Dockerfile.airflow .
 ```
 
 #### Verify Images
 ```bash
-docker images | grep -E "postgres-patroni|pgbouncer|vault"
+docker images | grep -E "postgres-patroni|pgbouncer|liquibase|custom-airflow-etl|vault"
 ```
 
 ### Step 3: Initialize Terraform
@@ -551,7 +543,7 @@ docker logs pg-node-1
 # Common reasons:
 # 1. Port already in use: Check with `netstat -tulpn | grep 5432`
 # 2. Insufficient memory: Check `docker stats`
-# 3. Image not found: Rebuild with `docker build -f Dockerfile.patroni ...`
+# 3. Image not found: Rebuild with `docker buildx build --load -t postgres-patroni:18-pgvector -f Dockerfile.patroni .`
 
 # Solution: Restart all
 docker stop $(docker ps -q --filter "label!=keep") 2>/dev/null || true

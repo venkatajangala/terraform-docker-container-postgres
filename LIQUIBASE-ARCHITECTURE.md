@@ -152,7 +152,7 @@ PostgreSQL Database: postgres
 Time  Event
 ──────────────────────────────────────────────────────────
 0s    terraform apply starts
-      └─ docker build Dockerfile.liquibase (lpm add postgresql)
+      └─ buildx build Dockerfile.liquibase (lpm add postgresql) — via main-image-builds.tf
 
 ~10s  liquibase-migrations container starts
       └─ liquibase-entrypoint.sh begins

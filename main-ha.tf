@@ -199,11 +199,9 @@ resource "docker_container" "etcd" {
 # ============================================================================
 
 resource "docker_image" "postgres_patroni" {
-  name = "postgres-patroni:18-pgvector"
-  build {
-    context    = path.module
-    dockerfile = "Dockerfile.patroni"
-  }
+  name         = "postgres-patroni:18-pgvector"
+  keep_locally = true # built out-of-band by terraform_data.build_postgres_patroni (see main-image-builds.tf)
+  depends_on   = [terraform_data.build_postgres_patroni]
 }
 
 # ============================================================================
@@ -374,11 +372,9 @@ resource "docker_container" "dbhub" {
 
 resource "docker_image" "pgbouncer" {
   count = var.pgbouncer_enabled ? 1 : 0
-  name  = "pgbouncer:ha"
-  build {
-    context    = path.module
-    dockerfile = "Dockerfile.pgbouncer"
-  }
+  name         = "pgbouncer:ha"
+  keep_locally = true # built out-of-band by terraform_data.build_pgbouncer (see main-image-builds.tf)
+  depends_on   = [terraform_data.build_pgbouncer]
 }
 
 resource "docker_volume" "pgbouncer_logs" {
