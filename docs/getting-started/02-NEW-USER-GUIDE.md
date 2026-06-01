@@ -80,12 +80,6 @@ graph TD
 - **Function**: Stores cluster state, leader election
 - **Ports**: 2379–2380
 
-### 🌐 DBHub (Bytebase)
-
-- **Role**: Web-based database management UI
-- **Access**: http://localhost:9080
-- **Features**: Query execution, schema browser, migrations
-
 ### 🔐 Vault (Secrets Management)
 
 - **Version**: HashiCorp Vault 1.17.3
@@ -144,7 +138,6 @@ graph TD
 ### ✅ Observability
 
 - **Cluster API**: REST endpoints show real-time cluster status
-- **Web UI**: Visual database management at `http://localhost:9080`
 - **Logs**: All container logs available via `docker logs`
 - **nginx status dashboard** (optional): Live cluster overview at `http://localhost:5005` — enable with `dashboard_enabled = true`
 - **Prometheus + Grafana** (optional): Full metrics dashboards at `http://localhost:3000` — enable with `monitoring_enabled = true`; verify with `bash monitoring-health-check.sh`
@@ -405,7 +398,6 @@ PGPASSWORD='<password from generated_passwords>' psql -h localhost -p 5433 -U pg
 | 2379 | etcd | Configuration | Internal |
 | 8200 | Vault | Secrets API & UI | Optional (`vault_enabled`) |
 | 8125/udp | Datadog Agent | DogStatsD custom metrics | Optional (`datadog_enabled`) |
-| 9080 | DBHub | Web UI | Browser |
 | 5005 | pg-dashboard | nginx cluster status | Optional (`dashboard_enabled`) |
 | 9090 | Prometheus | Metrics scrape & query | Optional (`monitoring_enabled`) |
 | 3000 | Grafana | Pre-provisioned dashboards | Optional (`monitoring_enabled`) |

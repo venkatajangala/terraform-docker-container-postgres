@@ -14,7 +14,7 @@ curl -s http://localhost:8008/leader | python3 -m json.tool
 curl -s http://localhost:8008/cluster | python3 -m json.tool | grep -E '"name"|"state"|"role"|"lag"'
 
 # Check all containers
-docker ps | grep -E 'pg-node|pgbouncer|etcd|vault|dbhub|datadog'
+docker ps | grep -E 'pg-node|pgbouncer|etcd|vault|datadog'
 
 # Expected containers:
 #   pg-node-1, pg-node-2, pg-node-3   (PostgreSQL + Patroni)
@@ -28,7 +28,6 @@ docker ps | grep -E 'pg-node|pgbouncer|etcd|vault|dbhub|datadog'
 #   pgbouncer-exporter-1/2             (pgbouncer metrics exporters — optional, monitoring_enabled)
 #   prometheus                         (metrics store — optional, monitoring_enabled)
 #   grafana                            (dashboards — optional, monitoring_enabled)
-#   dbhub                              (Bytebase web UI)
 ```
 
 ### Monitor PgBouncer
@@ -592,7 +591,7 @@ curl -s http://localhost:8008/cluster
 
 ### Monthly Health Check Checklist
 
-- [ ] Core containers running: pg-node-1/2/3, pgbouncer-1/2, etcd, dbhub
+- [ ] Core containers running: pg-node-1/2/3, pgbouncer-1/2, etcd
 - [ ] Optional: vault, vault-agent (if `vault_enabled = true`)
 - [ ] Optional: datadog-agent (if `datadog_enabled = true`)
 - [ ] All 3 PostgreSQL nodes running

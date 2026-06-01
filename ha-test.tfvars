@@ -8,7 +8,6 @@ postgres_user         = "pgadmin"
 postgres_password     = "" // Leave empty to auto-generate, or set via env var
 postgres_db           = "postgres"
 replication_password  = "" // Leave empty to auto-generate, or set via env var
-dbhub_port            = 9080
 etcd_port             = 2379
 etcd_peer_port        = 2380
 patroni_api_port_base = 8008

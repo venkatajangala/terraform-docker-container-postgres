@@ -26,7 +26,6 @@ IMAGES=(
   # Optional integrations
   apache/airflow:2.10.2-python3.12
   datadog/agent:7.78.0
-  bytebase/bytebase:3.16.0
 )
 
 echo "Warming Docker image cache (${#IMAGES[@]} images, parallel)…"

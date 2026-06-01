@@ -24,12 +24,6 @@ variable "replication_password" {
   description = "PostgreSQL replication user password. Leave empty to use randomly generated password from random_password.db_replication_password. Set via TF_VAR_replication_password or ha-test.tfvars."
 }
 
-variable "dbhub_port" {
-  type        = number
-  default     = 9080
-  description = "DBHub (Bytebase) web interface port"
-}
-
 variable "etcd_port" {
   type        = number
   default     = 2379

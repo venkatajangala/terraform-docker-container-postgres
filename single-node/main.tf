@@ -9,7 +9,7 @@ terraform {
 
 provider "docker" {}
 
-# Create a custom bridge network for Postgres and DBHub communication
+# Custom bridge network for Postgres (reserved for future MCP / AI agent components)
 resource "docker_network" "mcp_network" {
   name   = "mcp-network"
   driver = "bridge"
@@ -18,10 +18,6 @@ resource "docker_network" "mcp_network" {
 resource "docker_image" "postgres" {
   name         = "pgvector/pgvector:0.8.2-pg18-trixie"
   keep_locally = false
-}
-
-resource "docker_image" "dbhub" {
-  name = "bytebase/bytebase:3.16.0"
 }
 
 resource "docker_volume" "pgdata" {
@@ -62,28 +58,4 @@ resource "docker_container" "postgres" {
   networks_advanced {
     name = docker_network.mcp_network.name
   }
-}
-
-# DBHub container on the same network, connected to Postgres
-resource "docker_container" "dbhub" {
-  name    = "dbhub"
-  image   = docker_image.dbhub.image_id
-  restart = "unless-stopped"
-
-  ports {
-    internal = 8080
-    external = var.dbhub_port
-  }
-
-  env = [
-    "BYTEBASE_POSTGRES_URL=postgres://${var.postgres_user}:${var.postgres_password}@my-postgres:5432/${var.postgres_db}?sslmode=disable"
-  ]
-
-  networks_advanced {
-    name = docker_network.mcp_network.name
-  }
-
-  depends_on = [
-    docker_container.postgres
-  ]
 }

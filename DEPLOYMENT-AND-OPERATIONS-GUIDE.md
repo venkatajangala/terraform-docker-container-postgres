@@ -44,7 +44,6 @@ Patroni API (node-3):  8010 (localhost)
 etcd client:           2379 (localhost)
 etcd peer:             2380 (localhost)
 Vault API:             8200 (localhost)
-DBHub (Bytebase):      9080 (localhost)
 Datadog DogStatsD:     8125/udp (localhost, when datadog_enabled = true)
 nginx Dashboard:       5005    (localhost, when dashboard_enabled = true)
 Prometheus:            9090    (localhost, when monitoring_enabled = true)
@@ -185,7 +184,6 @@ Deployment process (~2-3 minutes):
 4. Start PostgreSQL nodes (Patroni)
 5. Start PgBouncer instances
 6. Start Vault services (dev: Raft single-node or multi-node; prod: auto-unseal with KMS)
-7. Start DBHub
 
 ### Step 8: Verify Deployment
 

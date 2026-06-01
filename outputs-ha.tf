@@ -67,11 +67,6 @@ output "patroni_api_endpoints" {
   description = "Patroni REST API endpoints for all nodes"
 }
 
-output "dbhub_url" {
-  value       = "http://localhost:${var.dbhub_port}"
-  description = "DBHub (Bytebase) web interface URL"
-}
-
 output "ha_network" {
   value       = docker_network.pg_ha_network.name
   description = "Docker network name for HA cluster"
@@ -185,12 +180,12 @@ output "airflow_credentials" {
   sensitive   = true
   description = "Airflow web UI and database credentials"
   value = var.airflow_enabled ? {
-    web_user          = var.airflow_admin_user
-    web_password      = local.airflow_admin_password
-    db_user           = "airflow_user"
-    db_password       = local.airflow_db_password
-    db_url_note       = "Both DB URLs built dynamically by airflow-entrypoint.sh (direct to Patroni primary)"
-    etl_db            = "postgres (pgadmin user, direct to primary via postgres_ha connection)"
+    web_user     = var.airflow_admin_user
+    web_password = local.airflow_admin_password
+    db_user      = "airflow_user"
+    db_password  = local.airflow_db_password
+    db_url_note  = "Both DB URLs built dynamically by airflow-entrypoint.sh (direct to Patroni primary)"
+    etl_db       = "postgres (pgadmin user, direct to primary via postgres_ha connection)"
   } : null
 }
 

@@ -6,7 +6,7 @@ Comprehensive testing procedures and validation for PostgreSQL HA + PgBouncer + 
 
 ```bash
 # 1. Verify all containers running (10 core + optional datadog-agent)
-docker ps | grep -E 'pg-node|pgbouncer|etcd|vault|dbhub|datadog'
+docker ps | grep -E 'pg-node|pgbouncer|etcd|vault|datadog'
 
 # 2. Run the full automated test suite (12 tests, 35 assertions)
 bash test-full-stack.sh

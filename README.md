@@ -81,11 +81,6 @@ unset PGPASSWORD
 - Quorum-based leader election
 - Safe failover coordination
 
-### ✅ Web Management UI
-- DBHub (Bytebase) for database administration
-- Schema browser
-- Query execution interface
-
 ### ✅ Secrets Management (HashiCorp Vault)
 
 - Centralized KV v2 secret storage with versioned secrets
@@ -262,7 +257,6 @@ psql -h localhost -p 5432 -U pgadmin -d postgres
 ### Cluster Monitoring
 ```
 Patroni API:       http://localhost:8008       (Node 1)
-Web UI (DBHub):    http://localhost:9080
 Admin Console:     psql -h localhost -p 6432 -U pgadmin -d pgbouncer
 Status Dashboard:  http://localhost:5005        (nginx — when dashboard_enabled = true)
 Grafana:           http://localhost:3000        (admin/admin — when monitoring_enabled = true)
@@ -630,7 +624,7 @@ See [PgBouncer Authentication](docs/pgbouncer/AUTHENTICATION.md) or [Troubleshoo
 - Terraform IaC fully validated
 - Deploy with confidence
 
-**Last Updated**: 2026-05-29  
+**Last Updated**: 2026-06-01  
 **Version**: PostgreSQL 18.2 + Patroni 3.3.8 + etcd 3.5.0 + PgBouncer 1.15 + Datadog Agent 7
 
 ---

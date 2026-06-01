@@ -338,40 +338,11 @@ resource "docker_container" "pg_node" {
 }
 
 # ============================================================================
-# DBHub (Bytebase) - Connects to Primary Node
-# ============================================================================
-
-resource "docker_image" "dbhub" {
-  name = "bytebase/bytebase:3.16.0"
-}
-
-resource "docker_container" "dbhub" {
-  name    = "dbhub"
-  image   = docker_image.dbhub.image_id
-  restart = "unless-stopped"
-
-  ports {
-    internal = 8080
-    external = var.dbhub_port
-  }
-
-  env = [
-    "BYTEBASE_POSTGRES_URL=postgres://${var.postgres_user}:${local.postgres_password}@pg-node-1:5432/${var.postgres_db}?sslmode=disable"
-  ]
-
-  networks_advanced {
-    name = docker_network.pg_ha_network.name
-  }
-
-  depends_on = [docker_container.pg_node]
-}
-
-# ============================================================================
 # PgBouncer - Connection Pooling Layer (Consolidated via for_each)
 # ============================================================================
 
 resource "docker_image" "pgbouncer" {
-  count = var.pgbouncer_enabled ? 1 : 0
+  count        = var.pgbouncer_enabled ? 1 : 0
   name         = "pgbouncer:ha"
   keep_locally = true # built out-of-band by terraform_data.build_pgbouncer (see main-image-builds.tf)
   depends_on   = [terraform_data.build_pgbouncer]

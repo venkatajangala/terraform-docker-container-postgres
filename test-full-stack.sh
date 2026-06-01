@@ -62,7 +62,7 @@ echo ""
 echo "📋 TEST 1: Container Status"
 echo "─────────────────────────────────────────────────────────────────────"
 
-containers=(pg-node-1 pg-node-2 pg-node-3 etcd pgbouncer-1 pgbouncer-2 dbhub)
+containers=(pg-node-1 pg-node-2 pg-node-3 etcd pgbouncer-1 pgbouncer-2)
 if [ "${Vault_ENABLED:-false}" = "true" ]; then
   containers+=(vault)
 fi

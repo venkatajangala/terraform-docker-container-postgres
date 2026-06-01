@@ -106,7 +106,7 @@ time terraform apply -auto-approve \
 
 ```bash
 # Check all containers started
-docker ps -a | grep -E 'pg-node|pgbouncer|etcd|vault|liquibase|dbhub'
+docker ps -a | grep -E 'pg-node|pgbouncer|etcd|vault|liquibase'
 
 # Verify container counts
 RUNNING=$(docker ps --format "{{.Names}}" | wc -l)
@@ -118,7 +118,7 @@ echo "Total: $TOTAL"
 # Expected output format:
 # CONTAINER ID  IMAGE    COMMAND   CREATED   STATUS    PORTS    NAMES
 # [multiple rows for pg-node-1, pg-node-2, pg-node-3, pgbouncer-1, pgbouncer-2, 
-#  etcd, vault, dbhub, liquibase-migrations]
+#  etcd, vault, liquibase-migrations]
 ```
 
 **Expected Results**: 
@@ -126,7 +126,6 @@ echo "Total: $TOTAL"
 - ✓ 2 PgBouncer instances (pgbouncer-1,2)
 - ✓ etcd running
 - ✓ vault running
-- ✓ dbhub (Bytebase) running
 - ✓ liquibase-migrations completed (exited status 0)
 
 ---
@@ -644,7 +643,7 @@ grep "url:" datadog/rendered/http_check.yaml
 ### 8.10 Container Status After Deployment (with Datadog)
 
 ```bash
-docker ps -a | grep -E 'pg-node|pgbouncer|etcd|vault|liquibase|dbhub|datadog'
+docker ps -a | grep -E 'pg-node|pgbouncer|etcd|vault|liquibase|datadog'
 ```
 
 **Expected Results**:

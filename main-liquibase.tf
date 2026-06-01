@@ -3,7 +3,7 @@
 # ============================================================================
 
 resource "docker_image" "liquibase" {
-  count = var.liquibase_enabled ? 1 : 0
+  count        = var.liquibase_enabled ? 1 : 0
   name         = "liquibase:ha"
   keep_locally = true # built out-of-band by terraform_data.build_liquibase (see main-image-builds.tf)
   depends_on   = [terraform_data.build_liquibase]

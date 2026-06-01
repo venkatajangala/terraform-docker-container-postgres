@@ -16,9 +16,3 @@ variable "postgres_db" {
   default     = "postgres"
   description = "PostgreSQL database name"
 }
-
-variable "dbhub_port" {
-  type        = number
-  default     = 9090
-  description = "DBHub web interface port"
-}

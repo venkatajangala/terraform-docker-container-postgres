@@ -17,7 +17,6 @@ graph TD
     end
 
     ETCD["etcd Cluster<br/>:2379 / :2380<br/>Leader election · Cluster state · Safe failover"]
-    DBHUB["DBHub / Bytebase (optional)<br/>:9080 — Web Management UI"]
 
     subgraph SECRETS["Secrets Management Layer (optional — vault_enabled)"]
         VAULT["Vault Server<br/>:8200 · Raft backend"]
@@ -41,7 +40,6 @@ graph TD
     PGB1 & PGB2 -->|"TCP 6432 / 6433 — transaction pooling"| PGHA
     PG1 -->|"WAL streaming"| PG2 & PG3
     PGHA <-->|"Leader election & health checks"| ETCD
-    ETCD -.-> DBHUB
     AGENT -->|"AppRole login"| VAULT
     VAULT -->|"KV secrets"| AGENT
     AGENT -->|"render"| SVOL
@@ -548,7 +546,6 @@ graph TD
         ETCD["etcd<br/>172.20.0.5"]
         PGB1["pgbouncer-1<br/>172.20.0.6"]
         PGB2["pgbouncer-2<br/>172.20.0.7"]
-        DBHUB["dbhub<br/>172.20.0.8"]
         VAULT["vault<br/>172.20.0.9"]
         VAGENT["vault-agent<br/>172.20.0.10"]
         DD["datadog-agent<br/>(optional)"]
@@ -571,7 +568,6 @@ graph TD
     HOST -->|":2379"| ETCD
     HOST -->|":8200"| VAULT
     HOST -->|":8125 UDP"| DD
-    HOST -->|":9080"| DBHUB
     HOST -->|":5005"| DASH
     HOST -->|":9090"| PROM
     HOST -->|":3000"| GRAF
@@ -586,7 +582,6 @@ graph LR
     PGB1["PgBouncer-1"]
     PG1D["pg-node-1 (direct)"]
     PAT["Patroni API"]
-    DBH["DBHub Web UI"]
     PG1["pg-node-1"]
     PG2["pg-node-2"]
     PG3["pg-node-3"]
@@ -596,7 +591,6 @@ graph LR
     HOST -->|"localhost:5432"| PG1D
     HOST -->|"localhost:8008"| PAT
     HOST -->|"localhost:8200"| VLT["Vault API / UI"]
-    HOST -->|"localhost:9080"| DBH
     PGB1 -->|"TCP 5432"| PG1 & PG2 & PG3
     PAT <-->|"TCP 2379"| ETCD
     PG1 <-->|"TCP 5432 replication"| PG2 & PG3
@@ -707,7 +701,6 @@ sequenceDiagram
 | Vault | ~200 MB + Raft storage |
 | vault-agent | ~50 MB |
 | Datadog Agent | ~512 MB (configurable via `datadog_memory_mb`) |
-| DBHub | ~500 MB |
 | postgres-exporter × 3 | ~64 MB each |
 | pgbouncer-exporter × 2 | ~64 MB each |
 | Prometheus | ~256 MB |
@@ -738,7 +731,7 @@ graph TD
     EXT["External Clients<br/>(SCRAM-SHA-256 required)"]
 
     subgraph HOST["Host Machine — Trusted Boundary"]
-        PORTS["Exposed Host Ports<br/>:6432 / :6433 → PgBouncer (DB access)<br/>:5432–:5434 → PostgreSQL direct<br/>:8008–:8010 → Patroni API<br/>:2379 → etcd API<br/>:8200 → Vault API (restrict in production)<br/>:9080 → DBHub Web UI"]
+        PORTS["Exposed Host Ports<br/>:6432 / :6433 → PgBouncer (DB access)<br/>:5432–:5434 → PostgreSQL direct<br/>:8008–:8010 → Patroni API<br/>:2379 → etcd API<br/>:8200 → Vault API (restrict in production)"]
 
         subgraph DOCKER["Docker Bridge Network · 172.20.0.0/16 (Isolated)"]
             PG1["pg-node-1"] & PG2["pg-node-2"] & PG3["pg-node-3"]
@@ -748,7 +741,6 @@ graph TD
             VAGENT["vault-agent (renders secrets)"]
             SVOL[("vault-agent-secrets\nread-only → pg-node + pgbouncer")]
             DD["datadog-agent (optional)\ndocker.sock read-only"]
-            DBHUB["dbhub"]
         end
     end
 
